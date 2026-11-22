@@ -1,0 +1,85 @@
+--- a/klipper_extras/indx_remap.py
++++ b/klipper_extras/indx_remap.py
+@@ -435,7 +435,7 @@
+                 self.gcode.respond_info(
+                     "INDX spool join: the T%d runout sensor (%s) has pause_on_runout on, so Klipper pauses the print before INDX can switch to "
+                     "a tool with the same filament. Set pause_on_runout: False in its section." % (d, name))
+-        if not self._manager():
++        if not self._manager_owns_tools():
+             self._route_tool_commands()
+         self._wrap_resume()
+         self.reactor.register_timer(self._watch, self.reactor.monotonic() + 1.0)
+@@ -464,6 +464,14 @@
+         api = self.printer.lookup_object("indx_api", None)
+         return getattr(api, "manager", None) if api is not None else None
+ 
++    def _manager_owns_tools(self):
++        # A tool manager that owns T<n> (owns_tool_commands) owns the mapping
++        # too. One that only feeds the tools (a filament system with one lane
++        # per tool, INDX doing the tool changes) leaves the mapping and the
++        # spool join to INDX.
++        m = self._manager()
++        return m is not None and bool(getattr(m, "owns_tool_commands", False))
++
+     def _tp(self):
+         m = self.printer.lookup_object("gcode_macro TOOL_POSITIONS", None)
+         return m.get_status(self.reactor.monotonic()) if m is not None else {}
+@@ -578,9 +586,15 @@
+         if self.last_busy and not busy and self.join_busy is not None:
+             frm, to = self.join_busy
+             self.join_busy = None
+-            self._move_map(frm, to)
+-            self._notify("info", "T%d spool ran out" % frm,
+-                         "Its future changes go to T%d (same filament)." % to)
++            if self._active_tool() == frm and st == "printing":
++                # the change that was running picked the empty tool up: it is
++                # on the head now, so the join starts (a remap alone would
++                # leave it printing on empty until the slicer's next change)
++                self.reactor.register_callback(lambda e: self._start_join(frm, to))
++            else:
++                self._move_map(frm, to)
++                self._notify("info", "T%d spool ran out" % frm,
++                             "Its future changes go to T%d (same filament)." % to)
+         self.last_busy = busy
+         self.last_state = st
+         return eventtime + 0.5
+@@ -597,7 +611,7 @@
+         self._drop_extra_t()
+         self._reset()
+         self.args = gcmd.get_raw_command_parameters()
+-        if self._manager() is not None or gcmd.get("DOCKS", ""):
++        if self._manager_owns_tools() or gcmd.get("DOCKS", ""):
+             self.state = "off"
+             return
+         if gcmd.get_int("DRY", 0):
+@@ -712,7 +726,11 @@
+                 self.ran_out.remove(d)
+             gcmd.respond_info("INDX: T%d loaded again" % d)
+             return
+-        self._runout(d, gcmd)
++        # Later, outside this command: _runout runs PAUSE or the spool join
++        # with run_script, which waits for the G-code lock this command holds
++        # (a sensor's runout_gcode runs INDX_RUNOUT inside that lock)
++        gcmd.respond_info("INDX: T%d's spool ran out" % d)
++        self.reactor.register_callback(lambda e, d=d: self._runout(d))
+ 
+     def _used_docks(self):
+         ks = self.plan.get("tools") or []
+@@ -841,13 +859,10 @@
+         if nxt:
+             # a second runout arrived during the back-to-print-point phase;
+             # promote it now that the first join is complete
+-            self.join = nxt
+-            self._notify("warn", "Spool join: T%d to T%d" % (nxt["from"], nxt["to"]),
+-                         "T%d's spool ran out; INDX goes on with T%d (same filament)." % (nxt["from"], nxt["to"]))
+-            try:
+-                self.gcode.run_script("_INDX_SPOOL_JOIN")
+-            except Exception:
+-                logging.exception("indx_remap: spool join (queued)")
++            # after this command (run_script here would wait for the G-code
++            # lock this command holds), and with the print point as it is
++            # then: the queued record was taken on the way back from the dock
++            self.reactor.register_callback(lambda e: self._start_join(nxt["from"], nxt["to"]))
+ 
+     # ---- settings and status ----
+     def cmd_REMAP(self, gcmd):
