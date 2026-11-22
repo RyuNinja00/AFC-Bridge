@@ -60,7 +60,7 @@ import logging
 import math
 import sys
 
-VERSION = "0.2.8"
+VERSION = "0.2.9"
 EMPTY = ("", "NONE", "None", "none", None)
 DEFAULTS = {"ram_relief": 0.0, "unload_chunk": 8.0, "prime_test": False, "print_check": "warn",
             "load_type": "none", "spool_join": True}
@@ -353,6 +353,7 @@ class IndxAfc:
                 # AFC owns CHANGE_TOOL (LANE=): INDX's public form, TOOL=, still works
                 ("CHANGE_TOOL", self._cmd_change_tool, "Change to TOOL=n (INDX), or AFC's CHANGE_TOOL LANE=<lane>: both end in INDX's tool change"),
                 ("LOAD_FILAMENT", self._cmd_load_filament, "INDX's LOAD_FILAMENT; with a lane feeding TOOL=: the lane rams its filament to the gears first and follows the load (INDX-AFC bridge). RAM=0 skips the ram, RAM=1 forces it"),
+                ("INDX_LOAD_FILAMENT", self._cmd_indx_load_filament, "INDX's feed to the melt zone and prime; in a bridge load the lane is synced to the extruder right before it (INDX-AFC bridge)"),
                 ("_INDX_UNLOAD_PULL", self._cmd_unload_pull, "Inner - INDX_UNLOAD's pull out of the gears; with a lane feeding the tool: in parts, the lane taking each back (INDX-AFC bridge)"),
                 ("INDX_RUNOUT", self._cmd_indx_runout, "A spool ran out in DOCK=<n> (PRESENT=1: loaded again): INDX's spool join, or a pause without a partner. Runs after this command (INDX-AFC bridge: the stock one waits on its own G-code lock)"),
                 ("_INDX_REMAP_JOINED", self._cmd_joined, "Inner - a spool join's change is back at the print point (INDX-AFC bridge: a queued join starts after this command)")):
@@ -506,7 +507,7 @@ class IndxAfc:
         cur = f.get_current_lane_obj()
         if cur is want:
             if want is not None:
-                want.sync_to_extruder()
+                self._sync_lane(want)
             else:
                 for lane in self.lanes.values():
                     if getattr(lane, "_synced_to_extruder", False):
@@ -522,6 +523,47 @@ class IndxAfc:
             want.set_tool_loaded(normal_toolchange=True)
         f.handle_activate_extruder()
         self.afc.save_vars()
+
+    def _lane_follows(self, lane):
+        """Is the lane's stepper on the extruder's motion queue (Klipper's
+        own state, not AFC's record of it)? None: cannot tell."""
+        try:
+            drive = getattr(lane, "drive_stepper", None) or lane
+            tq = self.printer.lookup_object("toolhead").get_extruder().get_trapq()
+            return drive.extruder_stepper.stepper.get_trapq() == tq
+        except Exception:
+            return None
+
+    def _sync_lane(self, lane):
+        """Sync the lane to the extruder and make sure it took. AFC skips the
+        sync when its own record says the lane is synced already; something
+        that unsynced the stepper without AFC (a latch move whose sync back
+        went elsewhere, for one) leaves that record wrong, and the lane would
+        stand still while the extruder feeds. Returns False if the lane is
+        still not on the extruder's motion queue."""
+        lane.sync_to_extruder()
+        if self._lane_follows(lane) is False:
+            drive = getattr(lane, "drive_stepper", None) or lane
+            logging.info("INDX-AFC: %s was not on the extruder although AFC had it synced: syncing again", lane.name)
+            for o in (drive, lane):
+                if hasattr(o, "_synced_to_extruder"):
+                    o._synced_to_extruder = None if not isinstance(getattr(o, "_synced_to_extruder"), bool) else False
+            lane.sync_to_extruder()
+        return self._lane_follows(lane) is not False
+
+    def _cmd_indx_load_filament(self, gcmd, prev):
+        """INDX's feed until the filament reaches the melt zone: the lane of
+        the tool being loaded must follow it. Synced (and checked) right here,
+        whatever happened since the ram (a pickup, a latch move, an event)."""
+        d = self.loading
+        lane = self.lanes.get(d) if d is not None else None
+        if lane is not None and self.enabled and self._active_tool() == d:
+            self._apply(d)
+            if not self._sync_lane(lane):
+                raise gcmd.error("INDX-AFC: %s could not be synced to the extruder, so it would not follow T%d's load. "
+                                 "Not feeding. Run INDX_AFC_SYNC and try again; klippy.log has more" % (lane.name, d))
+            gcmd.respond_info("INDX-AFC: %s follows T%d's load" % (lane.name, d))
+        return prev(gcmd)
 
     def _reconcile(self):
         if self.afc is None or not self.lanes or self.enums is None:

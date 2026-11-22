@@ -208,6 +208,9 @@ class Extruder:
     def get_heater(self):
         return self.heater
 
+    def get_trapq(self):
+        return "extruder_trapq"
+
 
 class Toolhead:
     def __init__(self):
@@ -378,6 +381,15 @@ class Lane(BaseLane):
         self.status, self.tool_loaded = AFCLaneState.LOADED, False
         self._synced_to_extruder = False      # AFC's flag
         self.kl_synced = False                # the stepper on the extruder's trapq (Klipper level)
+        lane_self = self
+
+        class _Stepper:
+            def get_trapq(s):
+                return "extruder_trapq" if lane_self.kl_synced else None
+
+        class _ES:
+            stepper = _Stepper()
+        self.extruder_stepper = _ES()
         self.enabled = False
         self.rammed = False
         self.material, self.color = "PLA", "#FF0000"
@@ -412,7 +424,10 @@ class Lane(BaseLane):
         LOG.append("afc infinite_runout %s" % self.name)
 
     def sync_to_extruder(self, update_current=True):
-        self._synced_to_extruder = self.kl_synced = True
+        # as AFC: skipped when its own record says synced already
+        if not self._synced_to_extruder:
+            self.kl_synced = True
+        self._synced_to_extruder = True
 
     def unsync_to_extruder(self, update_current=True):
         self._synced_to_extruder = self.kl_synced = False
@@ -705,6 +720,8 @@ class Indx:
         for name in ("_INDX_CHANGE_TOOL", "INDX_CHANGE_TOOL", "LOAD_FILAMENT", "INDX_UNLOAD", "_INDX_UNLOAD_PULL", "_TC_LATCH_MOVE",
                      "INDX_SET_TEMP", "PAUSE", "RESUME", "_INDX_SPOOL_JOIN", "INDX_PRINT_START", "INDX_SET_MATERIAL", "INDX_PRIME_TEST"):
             g.register_command(name, getattr(self, "c_" + name.lstrip("_").lower()))
+        g.register_command("INDX_LOAD_FILAMENT", self.c_indx_load_filament_feed)   # INDX's heater module
+        self.drop_sync_before_feed = False
         printer.objects["gcode_macro LOAD_FILAMENT"] = Macro(filament_presets={"PLA": {}, "PETG": {}, "ABS": {}, "ASA": {}, "PA": {}, "PC": {}, "TPU": {}})
         printer.objects["gcode_macro INDX_UNLOAD"] = Macro(unload_length=65, unload_speed=15)
         printer.objects["gcode_macro _INDX_CONSTANTS"] = Macro(run_current=0.6)
@@ -779,6 +796,10 @@ class Indx:
     def c_indx_set_temp(self, g):
         pass
 
+    def c_indx_load_filament_feed(self, g):
+        t = self.sv.get("active_tool", -1)
+        LOG.append("feed T%d following=%s" % (t, self.following()))
+
     def c_indx_set_material(self, g):
         self.sv["t%d_color" % g.get_int("TOOL")] = g.get("COLOR")
 
@@ -788,7 +809,11 @@ class Indx:
     def c_load_filament(self, g):
         t = g.get_int("TOOL")
         self.change(t)
-        LOG.append("feed T%d following=%s" % (t, self.following()))
+        if self.drop_sync_before_feed:
+            # something unsyncs the lane in Klipper behind AFC's back (AFC's flag stays)
+            for l in self.lanes():
+                l.kl_synced = False
+        self.p.gcode.run_script_from_command("INDX_LOAD_FILAMENT APPLY=0 SAVE=0")
         self.sv["t%d_material" % t] = g.get("TYPE")
         self.ev("filament_state", tool=t, loaded=1)
 
@@ -904,7 +929,7 @@ def run_all():
     g.cmd("INDX_AFC_SYNC")
     check("sync: takes it back", b._commands_state() == [])
     g.cmd("INDX_AFC_STATUS")
-    check("status prints", any("INDX-AFC bridge 0.2.8: on" in m for m in g.info), g.info[-1:])
+    check("status prints", any("INDX-AFC bridge 0.2.9: on" in m for m in g.info), g.info[-1:])
     check("get_status for macros and the page", b.get_status(0)["enabled"] and b.get_status(0)["sensors"]["0"] == "lane1_prep")
 
     def bad(p2, afc2):
@@ -1049,6 +1074,16 @@ def run_all():
     g.cmd("RESUME")
     check("RESUME: INDX's runs, AFC's position restore does not; AFC's failure state is cleared",
           "INDX RESUME" in LOG and not any("AFC RESUME moves" in l for l in LOG) and afc.error.reset == 1 and not afc.in_toolchange, LOG)
+
+    # ---- the lane follows INDX's feed even if Klipper unsynced it behind AFC's back ----
+    p, afc, api, remap, b = setup()
+    indx = p.indx
+    indx.drop_sync_before_feed = True
+    del LOG[:]
+    p.gcode.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=ABS")
+    check("lane unsynced in Klipper while AFC still has it synced: synced again before INDX's feed, and it follows",
+          "feed T0 following=lane1" in LOG and any("lane1 follows T0's load" in l for l in LOG), LOG)
+    indx.drop_sync_before_feed = False
 
     # ---- INDX_AFC_CALIBRATE: the lane's path to its tool's gears ----
     p, afc, api, remap, b = setup()

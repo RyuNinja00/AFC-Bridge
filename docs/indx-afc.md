@@ -2,9 +2,9 @@
 
 Four Box Turtle lanes feed four INDX tools, one lane per tool. INDX does every tool change, load and unload; AFC drives the lanes. You keep AFC's assisted load and unload, a buffer per lane that keeps that lane in step with the extruder, AFC's lane LEDs and Spoolman tracking, and the Mainsail/Fluidd AFC panel.
 
-Version 0.2.8, written against INDX v1.0-beta.11 (beta.7, beta.6 and beta.5 work too), AFC DEV (1e400e2, November 2026) and current Kalico.
+Version 0.2.9, written against INDX v1.0-beta.11 (beta.7, beta.6 and beta.5 work too), AFC DEV (1e400e2, November 2026) and current Kalico.
 
-**Not tested on a printer yet.** The logic is tested against stand-ins for Kalico's G-code lock, AFC and INDX's macros, and against INDX's real `indx_remap.py` from beta.6, beta.7 and beta.11 (`tests/test_indx_afc.py`: 128 checks, 149 with INDX's file). Go through the Test Plan before a real print.
+**Early testing on a printer** (one Voron 2.4 with a 4-lane Box Turtle; fixes from it are in What Changed). The logic is tested against stand-ins for Kalico's G-code lock, AFC and INDX's macros, and against INDX's real `indx_remap.py` from beta.6, beta.7 and beta.11 (`tests/test_indx_afc.py`: 129 checks, 150 with INDX's file). Go through the Test Plan before a real print.
 
 ## Contents
 
@@ -170,7 +170,7 @@ Optional in the same section: `ram_relief_mm` and `load_type`, the start values 
 sudo systemctl restart klipper
 ```
 
-**11. Check it started.** Wait 15 s (AFC finishes its own start after about 2 s), then run `INDX_AFC_STATUS` in the console. It should say `on`, list each lane against its tool, and show no warnings; each warning names the setting to fix. `INDX_TOOL_MANAGER` should answer `INDX > Tool manager: indx_afc 0.2.8. ...`. INDX creates that command only while a tool manager is registered, so `Unknown command` means the bridge did not register (`INDX_STATUS` does not list the tool manager). On the INDX page, More, Settings, Extensions shows the "Box Turtle (AFC)" card.
+**11. Check it started.** Wait 15 s (AFC finishes its own start after about 2 s), then run `INDX_AFC_STATUS` in the console. It should say `on`, list each lane against its tool, and show no warnings; each warning names the setting to fix. `INDX_TOOL_MANAGER` should answer `INDX > Tool manager: indx_afc 0.2.9. ...`. INDX creates that command only while a tool manager is registered, so `Unknown command` means the bridge did not register (`INDX_STATUS` does not list the tool manager). On the INDX page, More, Settings, Extensions shows the "Box Turtle (AFC)" card.
 
 **12. Insert the spools.** Each spool's filament into its lane until AFC drives it to the load sensor and the lane shows Loaded. Every tool stays empty.
 
@@ -360,8 +360,13 @@ After install step 13, in this order, nothing printing, a hand near the emergenc
 
 - The parts most likely to need tuning on a real printer: the ram and calibration against your buffer (its switch points, `ram_relief`), `unload_chunk` against your buffer's travel, and the first pause and resume.
 - `INDX_COLD_PULL` is not lane-aware: its pulls are latch moves with the lane standing still. Unload the lane's filament first, or do cold pulls with the PTFE off the tool.
-- The bridge replaces methods on live AFC and INDX objects at start (AFC's `CHANGE_TOOL`, `TOOL_LOAD`, `TOOL_UNLOAD`, `LANE_UNLOAD`, PAUSE/RESUME handlers, lane runout handlers; INDX's `_manager` and `_watch` in `indx_remap`) and wraps six G-code commands. An update that renames them is caught by `check_compat.py`, by a start error, or by a line in `INDX_AFC_STATUS`.
+- The bridge replaces methods on live AFC and INDX objects at start (AFC's `CHANGE_TOOL`, `TOOL_LOAD`, `TOOL_UNLOAD`, `LANE_UNLOAD`, PAUSE/RESUME handlers, lane runout handlers; INDX's `_manager` and `_watch` in `indx_remap`) and wraps G-code commands (`CHANGE_TOOL`, `LOAD_FILAMENT`, `INDX_LOAD_FILAMENT`, `_INDX_UNLOAD_PULL`, `M104`/`M109`; on beta.5 and beta.6 also `INDX_RUNOUT` and `_INDX_REMAP_JOINED`). An update that renames them is caught by `check_compat.py`, by a start error, or by a line in `INDX_AFC_STATUS`.
 - On mainline Klipper (no `filament:runout` events) INDX only hears the runout of the lane in use, through AFC. INDX needs Kalico anyway.
+
+## What Changed in 0.2.9
+
+- **The lane did not follow INDX's load feed.** Found on a printer: after the ram, lane 1 stood still while T0's extruder fed, so the filament never reached the melt zone and INDX stopped with `filament load was not detected after 124.9 mm (0.0 J load energy)`. AFC skips a sync when its own record says the lane is synced already, and something had unsynced the lane's stepper in Klipper without AFC knowing. The bridge now syncs the lane right before INDX's feed (`INDX_LOAD_FILAMENT`), checks in Klipper itself that the lane is on the extruder's motion queue, syncs it again if not, and stops before feeding if it still is not. Each bridge load now says `INDX-AFC: lane1 follows T0's load` just before the feed.
+- The same check is used whenever the bridge keeps a lane synced.
 
 ## What Changed in 0.2.8
 
