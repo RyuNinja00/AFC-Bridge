@@ -929,7 +929,7 @@ def run_all():
     g.cmd("INDX_AFC_SYNC")
     check("sync: takes it back", b._commands_state() == [])
     g.cmd("INDX_AFC_STATUS")
-    check("status prints", any("INDX-AFC bridge 0.2.9: on" in m for m in g.info), g.info[-1:])
+    check("status prints", any("INDX-AFC bridge 0.2.10: on" in m for m in g.info), g.info[-1:])
     check("get_status for macros and the page", b.get_status(0)["enabled"] and b.get_status(0)["sensors"]["0"] == "lane1_prep")
 
     def bad(p2, afc2):
@@ -1084,6 +1084,16 @@ def run_all():
     check("lane unsynced in Klipper while AFC still has it synced: synced again before INDX's feed, and it follows",
           "feed T0 following=lane1" in LOG and any("lane1 follows T0's load" in l for l in LOG), LOG)
     indx.drop_sync_before_feed = False
+    # a lane motor switched off behind the bridge's back (AFC does after its own moves)
+    p, afc, api, remap, b = setup()
+    l1 = afc.lanes["lane1"]
+    l1.enabled = False
+    g = p.gcode
+    g.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=ABS")
+    check("after a bridge load the lane that follows has its motor on", l1.enabled is True and "feed T0 following=lane1" in LOG, (l1.enabled, LOG))
+    # AFC DEV keeps map as a list: no false "set map" warning
+    p, afc, api, remap, b = setup(pre=lambda p, afc: [setattr(l, "map", ("T%d" % i,)) for i, l in enumerate(afc.lanes.values())])
+    check("AFC DEV's list map (('T0',)): no false 'set map' warning", not any("set map" in w for w in b.warnings), b.warnings)
 
     # ---- INDX_AFC_CALIBRATE: the lane's path to its tool's gears ----
     p, afc, api, remap, b = setup()

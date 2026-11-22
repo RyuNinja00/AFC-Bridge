@@ -60,7 +60,7 @@ import logging
 import math
 import sys
 
-VERSION = "0.2.9"
+VERSION = "0.2.10"
 EMPTY = ("", "NONE", "None", "none", None)
 DEFAULTS = {"ram_relief": 0.0, "unload_chunk": 8.0, "prime_test": False, "print_check": "warn",
             "load_type": "none", "spool_join": True}
@@ -285,11 +285,28 @@ class IndxAfc:
             if orig is not None:
                 setattr(lane, name, (lambda o=orig, n=name, l=lane: self._lane_runout(l, o, n)))
 
+    @staticmethod
+    def _lane_map(lane):
+        """AFC main keeps a lane's map as a string ("T0"), AFC DEV as a list
+        (["T0"]): its T commands, as a list."""
+        m = getattr(lane, "map", None)
+        if m is None:
+            return []
+        if isinstance(m, str):
+            return [x.strip() for x in m.split(",") if x.strip()]
+        try:
+            return [str(x).strip() for x in m]
+        except TypeError:
+            return [str(m)]
+
+    def _maps_to(self, lane, d):
+        return self._lane_map(lane) == ["T%d" % d]
+
     def _check_lane(self, d, lane):
         n = lane.name
         if getattr(lane, "hub", None) != "direct":
             self._warn("%s: set hub: direct in [AFC_stepper %s] (one lane, one tool, no shared hub; not direct_load)" % (n, n))
-        if getattr(lane, "map", None) != "T%d" % d:
+        if not self._maps_to(lane, d):
             self._warn("%s: set map: T%d in [AFC_stepper %s] (now %s): AFC then takes T%d over from INDX's macro and hands it to the bridge"
                        % (n, d, n, getattr(lane, "map", None), d))
         if getattr(lane, "buffer_obj", None) is None:
@@ -541,6 +558,9 @@ class IndxAfc:
         went elsewhere, for one) leaves that record wrong, and the lane would
         stand still while the extruder feeds. Returns False if the lane is
         still not on the extruder's motion queue."""
+        # a synced lane whose motor is off follows nothing: AFC switches a
+        # lane's motor off after many of its own moves
+        lane.do_enable(True)
         lane.sync_to_extruder()
         if self._lane_follows(lane) is False:
             drive = getattr(lane, "drive_stepper", None) or lane
