@@ -8,7 +8,7 @@ A Klipper (Kalico) extension that lets an [AFC](https://github.com/ArmoredTurtle
 - INDX's spool join hears the Box Turtle's sensors
 - An install check (`tools/check_compat.py`) to run after any INDX, AFC or Kalico update
 
-**Status:** 0.2.10. Tested against stand-ins for Kalico, AFC and INDX, and against INDX's real `indx_remap.py` (beta.6, beta.7, beta.11). Early use on a printer; go through the test plan in the guide before a real print.
+**Status:** 0.2.11. Tested against stand-ins for Kalico, AFC and INDX, and against INDX's real `indx_remap.py` (beta.6, beta.7, beta.11). Early use on a printer; go through the test plan in the guide before a real print.
 
 ## Requirements
 

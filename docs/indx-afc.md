@@ -2,9 +2,9 @@
 
 Four Box Turtle lanes feed four INDX tools, one lane per tool. INDX does every tool change, load and unload; AFC drives the lanes. You keep AFC's assisted load and unload, a buffer per lane that keeps that lane in step with the extruder, AFC's lane LEDs and Spoolman tracking, and the Mainsail/Fluidd AFC panel.
 
-Version 0.2.10, written against INDX v1.0-beta.11 (beta.7, beta.6 and beta.5 work too), AFC DEV (1e400e2, November 2026) and current Kalico.
+Version 0.2.11, written against INDX v1.0-beta.11 (beta.7, beta.6 and beta.5 work too), AFC DEV (1e400e2, November 2026) and current Kalico.
 
-**Early testing on a printer** (one Voron 2.4 with a 4-lane Box Turtle; fixes from it are in What Changed). The logic is tested against stand-ins for Kalico's G-code lock, AFC and INDX's macros, and against INDX's real `indx_remap.py` from beta.6, beta.7 and beta.11 (`tests/test_indx_afc.py`: 131 checks, 152 with INDX's file). Go through the Test Plan before a real print.
+**Early testing on a printer** (one Voron 2.4 with a 4-lane Box Turtle; fixes from it are in What Changed). The logic is tested against stand-ins for Kalico's G-code lock, AFC and INDX's macros, and against INDX's real `indx_remap.py` from beta.6, beta.7 and beta.11 (`tests/test_indx_afc.py`: 133 checks, 154 with INDX's file). Go through the Test Plan before a real print.
 
 ## Contents
 
@@ -89,7 +89,7 @@ Lane 1 and T0 as the example. Once, before the first load ever, the lane has bee
 
 - **INDX Suite on Kalico** (INDX's `install.sh`, not `--macros-only`), beta.11 recommended; beta.7, beta.6 and beta.5 work.
 - **AFC's DEV branch** on current Kalico. AFC main (5ea84ea, August 2026) does not pass the `gcmd` argument that Kalico's `manual_home` now requires, so every AFC homing move fails on current Kalico: loads, unloads, the ram and the calibration all stop with `Error occurred when trying to home to ...`. AFC DEV has the fix. The install check tests for this.
-- **Hardware:** each lane's outlet runs straight to its own tool, with no hub merging lanes, and a buffer per lane between the Box Turtle and the tool. Any buffer AFC drives with two switches works (a TurtleNeck, or the N3MI-DG Lane-Buffer that mounts in the Box Turtle's rear skirt). Four buffers are eight switch inputs.
+- **Hardware:** each lane's outlet runs straight to its own tool, with no hub merging lanes, and a buffer per lane between the Box Turtle and the tool. Use 2 mm inside-diameter tube from each buffer to its tool: in a wider tube (3 mm) the tip wanders off-center over a long run and can catch at the tool's inlet, which stops the push short of the gears. Any buffer AFC drives with two switches works (a TurtleNeck, or the N3MI-DG Lane-Buffer that mounts in the Box Turtle's rear skirt). Four buffers are eight switch inputs.
 - **Your INDX working on its own first:** `INDX_SETUP` finished, docks measured, every tool changing correctly with nothing loaded.
 
 ## Install, Step by Step
@@ -170,7 +170,7 @@ Optional in the same section: `ram_relief_mm` and `load_type`, the start values 
 sudo systemctl restart klipper
 ```
 
-**11. Check it started.** Wait 15 s (AFC finishes its own start after about 2 s), then run `INDX_AFC_STATUS` in the console. It should say `on`, list each lane against its tool, and show no warnings; each warning names the setting to fix. `INDX_TOOL_MANAGER` should answer `INDX > Tool manager: indx_afc 0.2.10. ...`. INDX creates that command only while a tool manager is registered, so `Unknown command` means the bridge did not register (`INDX_STATUS` does not list the tool manager). On the INDX page, More, Settings, Extensions shows the "Box Turtle (AFC)" card.
+**11. Check it started.** Wait 15 s (AFC finishes its own start after about 2 s), then run `INDX_AFC_STATUS` in the console. It should say `on`, list each lane against its tool, and show no warnings; each warning names the setting to fix. `INDX_TOOL_MANAGER` should answer `INDX > Tool manager: indx_afc 0.2.11. ...`. INDX creates that command only while a tool manager is registered, so `Unknown command` means the bridge did not register (`INDX_STATUS` does not list the tool manager). On the INDX page, More, Settings, Extensions shows the "Box Turtle (AFC)" card.
 
 **12. Insert the spools.** Each spool's filament into its lane until AFC drives it to the load sensor and the lane shows Loaded. Every tool stays empty.
 
@@ -362,6 +362,11 @@ After install step 13, in this order, nothing printing, a hand near the emergenc
 - `INDX_COLD_PULL` is not lane-aware: its pulls are latch moves with the lane standing still. Unload the lane's filament first, or do cold pulls with the PTFE off the tool.
 - The bridge replaces methods on live AFC and INDX objects at start (AFC's `CHANGE_TOOL`, `TOOL_LOAD`, `TOOL_UNLOAD`, `LANE_UNLOAD`, PAUSE/RESUME handlers, lane runout handlers; INDX's `_manager` and `_watch` in `indx_remap`) and wraps G-code commands (`CHANGE_TOOL`, `LOAD_FILAMENT`, `INDX_LOAD_FILAMENT`, `_INDX_UNLOAD_PULL`, `M104`/`M109`; on beta.5 and beta.6 also `INDX_RUNOUT` and `_INDX_REMAP_JOINED`). An update that renames them is caught by `check_compat.py`, by a start error, or by a line in `INDX_AFC_STATUS`.
 - On mainline Klipper (no `filament:runout` events) INDX only hears the runout of the lane in use, through AFC. INDX needs Kalico anyway.
+
+## What Changed in 0.2.11
+
+- **A lane pushed to its tool but not loaded is remembered across a restart** (`indx_afc_rammed` in INDX's saved variables). After a failed load the next `INDX_AFC_LOAD` skips the push and goes straight to INDX's feed with the lane following, as before, but now also after a Klipper restart. Without this, a restart in between made the bridge push again from the start, and AFC's push begins with a full-speed move that does not watch the buffer, into filament already at the tool. The mark clears when the tool loads, when the lane is unloaded or ejected, or when the lane no longer has filament.
+- **Found on a printer: a 3 mm inside-diameter tube to the tool.** Over about 2 m the tip arrived off-center and caught at the tool's inlet; the buffer's advance switch closed there, so the push and the calibration both stopped short of the gears, and INDX reported `filament load was not detected ... (0.0 J load energy)`. A second `INDX_AFC_LOAD` got it in. Use 2 mm inside-diameter tube from the buffer to the tool (Requirements).
 
 ## What Changed in 0.2.10
 

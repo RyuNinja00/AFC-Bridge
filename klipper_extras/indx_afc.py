@@ -60,7 +60,7 @@ import logging
 import math
 import sys
 
-VERSION = "0.2.10"
+VERSION = "0.2.11"
 EMPTY = ("", "NONE", "None", "none", None)
 DEFAULTS = {"ram_relief": 0.0, "unload_chunk": 8.0, "prime_test": False, "print_check": "warn",
             "load_type": "none", "spool_join": True}
@@ -232,6 +232,12 @@ class IndxAfc:
                 raise self.printer.config_error("[indx_afc] lanes: AFC has no lane %s (its lanes: %s)" % (n, ", ".join(lanes) or "none"))
             self.lanes[d] = lane
         self.enums = _afc_enums(next(iter(self.lanes.values()), None))
+        # lanes pushed to their tool before a restart, and not loaded since
+        try:
+            saved = self._vars().get("indx_afc_rammed", []) or []
+            self.rammed = set(int(x) for x in saved if int(x) in self.lanes)
+        except Exception:
+            self.rammed = set()
         no_heat = self._no_heat_tools()
         for d in sorted(self.lanes):
             if d in no_heat:
@@ -420,6 +426,19 @@ class IndxAfc:
         m = self.printer.lookup_object("gcode_macro " + macro, None)
         v = getattr(m, "variables", {}).get(name) if m is not None else None
         return default if v is None else v
+
+    def _set_rammed(self, d, on):
+        """The docks whose lane is pushed to the tool but not loaded yet. Kept
+        in save_variables (indx_afc_rammed) too: after a restart the bridge
+        must not push that lane again (AFC's push starts with a full speed
+        move that does not watch the buffer)."""
+        before = set(self.rammed)
+        (self.rammed.add if on else self.rammed.discard)(d)
+        if self.rammed != before and self.printer.lookup_object("save_variables", None) is not None:
+            try:
+                self.gcode.run_script_from_command("SAVE_VARIABLE VARIABLE=indx_afc_rammed VALUE=[%s]" % ",".join(str(x) for x in sorted(self.rammed)))
+            except Exception:
+                logging.exception("INDX-AFC: could not save indx_afc_rammed")
 
     def _vars(self):
         if self.sv is None:
@@ -622,7 +641,7 @@ class IndxAfc:
         except (TypeError, ValueError):
             d, loaded = -1, 1
         if loaded:
-            self.rammed.discard(d)
+            self._set_rammed(d, False)
         self._reconcile()
         if not loaded and self.pulled == d and self.unloading != d:
             # INDX's own unload (its page, INDX_UNLOAD) pulled the filament
@@ -673,7 +692,7 @@ class IndxAfc:
                 "Unload button): ejecting now would pull it out of a cold nozzle." % (d, cur_lane.name, cur_lane.name), pause=False)
             return
         if d is not None:
-            self.rammed.discard(d)
+            self._set_rammed(d, False)
         return self.orig["LANE_UNLOAD"](cur_lane, *args, **kw)
 
     def _afc_pause(self, gcmd):
@@ -698,6 +717,8 @@ class IndxAfc:
         if lane is None or not self.enabled or self.in_load:
             return prev(gcmd)
         ram = gcmd.get_int("RAM", -1)
+        if t in self.rammed and not lane.load_state:
+            self._set_rammed(t, False)    # its filament is gone from the lane since
         need = (not self._has_filament(t)) and t not in self.rammed
         if need and not lane.load_state and ram != 1:
             gcmd.respond_info("INDX-AFC: %s has no filament at its load sensor: T%d loads as INDX does by hand (push the filament in to the gears)"
@@ -713,7 +734,7 @@ class IndxAfc:
             if self._active_tool() == t:
                 self._apply(t)
             prev(gcmd)
-            self.rammed.discard(t)
+            self._set_rammed(t, False)
         finally:
             self.loading = None
             self.in_load = False
@@ -745,7 +766,7 @@ class IndxAfc:
         if relief > 0:
             lane.move_advanced(-relief, SM.SHORT)
         lane.loaded_to_hub = True
-        self.rammed.add(d)
+        self._set_rammed(d, True)
 
     def _pickup_empty(self, d, what):
         """The empty tool d onto the head (its gears hold still: what a ram
@@ -864,7 +885,7 @@ class IndxAfc:
         _, _, warn = lane.move_to(lane.dist_hub * -1, SM.LONG, assist_active=AA.DYNAMIC,
                                   endstop=lane.load_es, use_homing=self.afc.homing_enabled)
         self.pulled = None
-        self.rammed.discard(d)
+        self._set_rammed(d, False)
         if warn == MW.ERROR:
             lane.do_enable(False)
             raise self.gcode.error("INDX-AFC: %s did not get back to its load sensor" % lane.name)

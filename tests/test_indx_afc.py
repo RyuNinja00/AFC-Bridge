@@ -876,6 +876,13 @@ def setup(manager=True, opts=None, pre=None, remap_cls=Remap):
     p.indx = indx
     remap = remap_cls(p)
     p.objects["indx_remap"] = remap
+    def save_variable(g, sv=p.objects["save_variables"].allVariables):
+        import ast
+        v = g.get("VALUE")
+        assert " " not in v and '"' not in v, v       # as Klipper parses it
+        sv[g.get("VARIABLE")] = ast.literal_eval(v)
+    if "SAVE_VARIABLE" not in p.gcode.ready_gcode_handlers:
+        p.gcode.register_command("SAVE_VARIABLE", save_variable)
     if pre:
         pre(p, afc)
     o = {"lanes": "lane1, lane2, lane3, lane4"}
@@ -929,7 +936,7 @@ def run_all():
     g.cmd("INDX_AFC_SYNC")
     check("sync: takes it back", b._commands_state() == [])
     g.cmd("INDX_AFC_STATUS")
-    check("status prints", any("INDX-AFC bridge 0.2.10: on" in m for m in g.info), g.info[-1:])
+    check("status prints", any("INDX-AFC bridge 0.2.11: on" in m for m in g.info), g.info[-1:])
     check("get_status for macros and the page", b.get_status(0)["enabled"] and b.get_status(0)["sensors"]["0"] == "lane1_prep")
 
     def bad(p2, afc2):
@@ -1094,6 +1101,28 @@ def run_all():
     # AFC DEV keeps map as a list: no false "set map" warning
     p, afc, api, remap, b = setup(pre=lambda p, afc: [setattr(l, "map", ("T%d" % i,)) for i, l in enumerate(afc.lanes.values())])
     check("AFC DEV's list map (('T0',)): no false 'set map' warning", not any("set map" in w for w in b.warnings), b.warnings)
+
+    # ---- a lane pushed to its tool but not loaded is remembered across a restart ----
+    p, afc, api, remap, b = setup()
+    indx = p.indx
+    def fail_feed(g):
+        LOG.append("feed failed")
+        raise GError("INDX: filament load was not detected after 124.9 mm (0.0 J load energy)")
+    p.gcode.ready_gcode_handlers["INDX_LOAD_FILAMENT"] = fail_feed
+    try:
+        p.gcode.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=ABS")
+    except GError:
+        pass
+    sv = dict(p.objects["save_variables"].allVariables)
+    check("a failed load: the lane stays marked as pushed to T0, also in save_variables",
+          0 in b.rammed and sv.get("indx_afc_rammed") == [0], (b.rammed, sv.get("indx_afc_rammed")))
+    # restart: a new bridge with the same saved variables
+    p2, afc2, api2, remap2, b2 = setup(pre=lambda p, afc: p.objects["save_variables"].allVariables.update(sv))
+    del LOG[:]
+    p2.gcode.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=ABS")
+    check("after a restart the retry does not push the lane again (no blind move into filament at the tool), it feeds",
+          not any(l.startswith("ram lane1") for l in LOG) and "feed T0 following=lane1" in LOG
+          and p2.objects["save_variables"].allVariables.get("indx_afc_rammed") == [], LOG)
 
     # ---- INDX_AFC_CALIBRATE: the lane's path to its tool's gears ----
     p, afc, api, remap, b = setup()
