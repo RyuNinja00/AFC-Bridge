@@ -45,8 +45,6 @@ Version 0.3.1, written against INDX v1.0-beta.11 (beta.7, beta.6 and beta.5 work
 
 **Registered with INDX as its tool manager, but not owning the tools.** INDX's extension API lets one module register as the tool manager. INDX then unsyncs every synced stepper around its latch moves, which is the only safe way to share the extruder motor with a lane. The bridge registers for that alone: it tells INDX it does not own `T<n>` or the tool changes, and keeps INDX's tool map and spool join on.
 
-**Compared with the other AFC-on-INDX build** (`afc-indx-beta-20261116-2`, reviewed in `afc-indx-build-review.md`): that one makes AFC the owner of tool changes. It is the choice for more lanes than tools (several spools through a hub into one tool); this bridge is the closer fit for one lane per tool. INDX allows one tool manager, so only one of the two can be installed.
-
 ## Features
 
 - **Lane calibration.** `INDX_BRIDGE_CALIBRATE` measures each lane's path to its tool's gears and saves it as `dist_hub`. No tape measure.
