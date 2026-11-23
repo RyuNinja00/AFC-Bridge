@@ -1,4 +1,4 @@
-# INDX Bridge (unofficial): a Box Turtle Feeding INDX Tools
+# INDX Bridge (unofficial): Box Turtle Feeding INDX Tools
 
 *Not made or supported by Bondtech or the AFC (Armored Turtle) project.*
 
