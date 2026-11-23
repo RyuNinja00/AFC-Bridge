@@ -14,7 +14,8 @@ A Klipper (Kalico) extension that lets an [AFC](https://github.com/ArmoredTurtle
 
 ## Requirements
 
--  IMPORTANT: A Buffer system per lane.  This is addon is NOT for using a stock box-turtle with a hub on one tool.  It is designed with a separate buffer system per lane, with one lane feeding one tool. I used this design: https://github.com/N3MI-DG/Lane-Buffer
+-  IMPORTANT:  You will need a advancing and trailing buffer system per lane (like the turtle-neck buffer).  This addon is NOT for using a stock box-turtle with a hub on one tool.  It is designed with a separate buffer system per lane, with one lane feeding one tool. I used this design: https://github.com/N3MI-DG/Lane-Buffer
+  
 -  INDX Suite on Kalico (INDX's full install), v1.0-beta.11 recommended
 - AFC on its **DEV** branch (AFC main fails every homing move on current Kalico)
 - One buffer per lane, each lane's tube going straight to its own tool (no hub)
