@@ -1,6 +1,6 @@
 # INDX Bridge (unofficial): a Box Turtle Feeding INDX Tools
 
-*Not made or supported by Bondtech or the AFC (Armored Turtle) project.
+*Not made or supported by Bondtech or the AFC (Armored Turtle) project.*
 
 Four Box Turtle lanes feed four INDX tools, one lane per tool. INDX does every tool change, load and unload; AFC drives the lanes. You keep AFC's assisted load and unload, a buffer per lane that keeps that lane in step with the extruder, AFC's lane LEDs and Spoolman tracking, and the Mainsail/Fluidd AFC panel.
 
