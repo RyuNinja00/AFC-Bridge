@@ -887,7 +887,7 @@ def setup(manager=True, opts=None, pre=None, remap_cls=Remap):
         pre(p, afc)
     o = {"lanes": "lane1, lane2, lane3, lane4"}
     o.update(opts or {})
-    b = indx_bridge.IndxAfc(Config(p, o))
+    b = indx_bridge.IndxBridge(Config(p, o))
     p.objects["indx_bridge"] = b
     p.send_event("klippy:connect")
     p.send_event("klippy:ready")
@@ -936,7 +936,7 @@ def run_all():
     g.cmd("INDX_BRIDGE_SYNC")
     check("sync: takes it back", b._commands_state() == [])
     g.cmd("INDX_BRIDGE_STATUS")
-    check("status prints", any("INDX Bridge 0.3.0: on" in m for m in g.info), g.info[-1:])
+    check("status prints", any("INDX Bridge 0.3.1: on" in m for m in g.info), g.info[-1:])
     check("get_status for macros and the page", b.get_status(0)["enabled"] and b.get_status(0)["sensors"]["0"] == "lane1_prep")
 
     def bad(p2, afc2):
@@ -1157,7 +1157,7 @@ def run_all():
     del LOG[:]
     g.cmd("INDX_BRIDGE_LOAD LANE=lane1 TYPE=PLA")
     check("the next load rams with the calibrated dist_hub; its blind part stops short of the gears",
-          any(l.startswith("ram lane1 1971") for l in LOG) and l1.blind_past_gears == 0.0 and "say INDX-Bridge: lane1 loaded into T0" in LOG, (LOG, l1.blind_past_gears))
+          any(l.startswith("ram lane1 1971") for l in LOG) and l1.blind_past_gears == 0.0 and "say INDX Bridge: lane1 loaded into T0" in LOG, (LOG, l1.blind_past_gears))
     # with 50 mm of compression before the switch closes, the blind part still stops short
     for comp, name in ((50.0, "lane3"),):
         lc = afc.lanes[name]
@@ -1165,7 +1165,7 @@ def run_all():
         g.cmd("INDX_BRIDGE_CALIBRATE LANE=%s" % name)
         g.cmd("INDX_BRIDGE_LOAD LANE=%s TYPE=PLA" % name)
         check("50 mm of compression before the switch closes: the calibrated ram's blind part still stops short of the gears, and it homes",
-              lc.blind_past_gears == 0.0 and "say INDX-Bridge: lane3 loaded into T2" in LOG, (lc.dist_hub, lc.blind_past_gears, LOG[-3:]))
+              lc.blind_past_gears == 0.0 and "say INDX Bridge: lane3 loaded into T2" in LOG, (lc.dist_hub, lc.blind_past_gears, LOG[-3:]))
     # why not longer: AFC rams dist_hub - 20 mm without watching the buffer
     l2x = afc.lanes["lane2"]
     l2x.dist_hub = 2100.0
@@ -1435,7 +1435,7 @@ def run_all():
     sv.update({"t0_material": "PLA", "t1_material": "NONE"})
     afc.lanes["lane1"].prep_state = False
     g.cmd("INDX_PRINT_START TOOLS=0,1,2")
-    says = [l for l in LOG if l.startswith("say INDX-Bridge !")]
+    says = [l for l in LOG if l.startswith("say INDX Bridge !")]
     check("print start: a spool that is out and an empty tool with a ready lane are named",
           len(says) == 1 and "T0: lane1's spool is out" in says[0] and "T1 is empty but lane2" in says[0] and "T2 is empty but lane3" in says[0], says)
     p.objects["print_stats"].state = "standby"
@@ -1446,7 +1446,7 @@ def run_all():
     p.objects["gcode_macro _INDX_BRIDGE"].variables["print_check"] = "off"
     del LOG[:]
     g.cmd("INDX_PRINT_START TOOLS=0")
-    check("print start: off says nothing", not any("INDX-Bridge !" in l for l in LOG), LOG)
+    check("print start: off says nothing", not any("INDX Bridge !" in l for l in LOG), LOG)
 
     # ---- colors ----
     p, afc, api, remap, b = setup()

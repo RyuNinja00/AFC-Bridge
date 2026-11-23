@@ -4,7 +4,7 @@
 
 Four Box Turtle lanes feed four INDX tools, one lane per tool. INDX does every tool change, load and unload; AFC drives the lanes. You keep AFC's assisted load and unload, a buffer per lane that keeps that lane in step with the extruder, AFC's lane LEDs and Spoolman tracking, and the Mainsail/Fluidd AFC panel.
 
-Version 0.3.0, written against INDX v1.0-beta.11 (beta.7, beta.6 and beta.5 work too), AFC DEV (1e400e2, November 2026) and current Kalico.
+Version 0.3.1, written against INDX v1.0-beta.11 (beta.7, beta.6 and beta.5 work too), AFC DEV (1e400e2, November 2026) and current Kalico.
 
 **Early testing on a printer** (one Voron 2.4 with a 4-lane Box Turtle; fixes from it are in What Changed). The logic is tested against stand-ins for Kalico's G-code lock, AFC and INDX's macros, and against INDX's real `indx_remap.py` from beta.6, beta.7 and beta.11 (`tests/test_indx_bridge.py`: 136 checks, 157 with INDX's file). Go through the Test Plan before a real print.
 
@@ -172,7 +172,7 @@ Optional in the same section: `ram_relief_mm` and `load_type`, the start values 
 sudo systemctl restart klipper
 ```
 
-**11. Check it started.** Wait 15 s (AFC finishes its own start after about 2 s), then run `INDX_BRIDGE_STATUS` in the console. It should say `on`, list each lane against its tool, and show no warnings; each warning names the setting to fix. `INDX_TOOL_MANAGER` should answer `INDX > Tool manager: indx_bridge 0.3.0. ...`. INDX creates that command only while a tool manager is registered, so `Unknown command` means the bridge did not register (`INDX_STATUS` does not list the tool manager). On the INDX page, More, Settings, Extensions shows the "Box Turtle (AFC)" card.
+**11. Check it started.** Wait 15 s (AFC finishes its own start after about 2 s), then run `INDX_BRIDGE_STATUS` in the console. It should say `on`, list each lane against its tool, and show no warnings; each warning names the setting to fix. `INDX_TOOL_MANAGER` should answer `INDX > Tool manager: indx_bridge 0.3.1. ...`. INDX creates that command only while a tool manager is registered, so `Unknown command` means the bridge did not register (`INDX_STATUS` does not list the tool manager). On the INDX page, More, Settings, Extensions shows the "Box Turtle (AFC)" card.
 
 **12. Insert the spools.** Each spool's filament into its lane until AFC drives it to the load sensor and the lane shows Loaded. Every tool stays empty.
 
@@ -245,9 +245,9 @@ The installer:
 - renames `[indx_afc]` to `[indx_bridge]` in your configuration files, keeping each changed file as `<file>.before-indx-bridge`;
 - lists any of your own files that still use `INDX_AFC_*` commands (a print start macro, for example). Change those to `INDX_BRIDGE_*` by hand.
 
-At the first start the bridge carries over what indx-afc saved: the settings from the INDX page (it says `INDX-Bridge: N settings carried over from indx-afc`) and a lane left pushed to its tool by a failed load. Your AFC files and calibrated `dist_hub` values are not touched.
+At the first start the bridge carries over what indx-afc saved: the settings from the INDX page (it says `INDX Bridge: N settings carried over from indx-afc`) and a lane left pushed to its tool by a failed load. Your AFC files and calibrated `dist_hub` values are not touched.
 
-Check with `INDX_TOOL_MANAGER` (it names `indx_bridge 0.3.0`) and `INDX_BRIDGE_STATUS`. When everything works, `rm -rf ~/indx-afc.old`.
+Check with `INDX_TOOL_MANAGER` (it names `indx_bridge 0.3.1`) and `INDX_BRIDGE_STATUS`. When everything works, `rm -rf ~/indx-afc.old`.
 
 | Was (indx-afc) | Now (INDX Bridge) |
 | --- | --- |
@@ -255,7 +255,7 @@ Check with `INDX_TOOL_MANAGER` (it names `indx_bridge 0.3.0`) and `INDX_BRIDGE_S
 | `[indx_afc]` | `[indx_bridge]` |
 | `INDX_AFC_STATUS`, `_LOAD`, `_UNLOAD`, `_LOAD_ALL`, `_UNLOAD_ALL`, `_SYNC`, `_CALIBRATE` | `INDX_BRIDGE_STATUS`, `_LOAD`, `_UNLOAD`, `_LOAD_ALL`, `_UNLOAD_ALL`, `_SYNC`, `_CALIBRATE` |
 | `INDX_SETTING MACRO=_INDX_AFC ...` | `INDX_SETTING MACRO=_INDX_BRIDGE ...` |
-| Console messages `INDX-AFC: ...` | `INDX-Bridge: ...` |
+| Console messages `INDX-AFC: ...` | `INDX Bridge: ...` |
 | github.com/RyuNinja00/AFC-Bridge | github.com/RyuNinja00/indx-bridge |
 
 ### After an INDX, AFC or Kalico Update
@@ -397,6 +397,11 @@ After install step 13, in this order, nothing printing, a hand near the emergenc
 - The bridge replaces methods on live AFC and INDX objects at start (AFC's `CHANGE_TOOL`, `TOOL_LOAD`, `TOOL_UNLOAD`, `LANE_UNLOAD`, PAUSE/RESUME handlers, lane runout handlers; INDX's `_manager` and `_watch` in `indx_remap`) and wraps G-code commands (`CHANGE_TOOL`, `LOAD_FILAMENT`, `INDX_LOAD_FILAMENT`, `_INDX_UNLOAD_PULL`, `M104`/`M109`; on beta.5 and beta.6 also `INDX_RUNOUT` and `_INDX_REMAP_JOINED`). An update that renames them is caught by `check_compat.py`, by a start error, or by a line in `INDX_BRIDGE_STATUS`.
 - On mainline Klipper (no `filament:runout` events) INDX only hears the runout of the lane in use, through AFC. INDX needs Kalico anyway.
 
+## What Changed in 0.3.1
+
+- **One spelling for the name in messages.** Console messages start with `INDX Bridge:` (0.3.0 printed `INDX-Bridge:`), the same as the name everywhere else. The name is used in three forms only: `INDX Bridge` in text and messages, `indx-bridge` for the folder, repository and zip, `indx_bridge` / `INDX_BRIDGE_*` in the configuration and commands.
+- The module's class is `IndxBridge` (it was still `IndxAfc` inside). Nothing else changes.
+
 ## What Changed in 0.3.0
 
 - **Renamed from indx-afc to INDX Bridge (unofficial).** Every name changes, with no old command names kept; see *Moving from indx-afc* under Updating the Bridge. The installer removes the old links and renames `[indx_afc]` in your configuration; the bridge carries the page settings and a pushed lane over at its first start.
@@ -414,7 +419,7 @@ After install step 13, in this order, nothing printing, a hand near the emergenc
 
 ## What Changed in 0.2.9
 
-- **The lane did not follow INDX's load feed.** Found on a printer: after the ram, lane 1 stood still while T0's extruder fed, so the filament never reached the melt zone and INDX stopped with `filament load was not detected after 124.9 mm (0.0 J load energy)`. AFC skips a sync when its own record says the lane is synced already, and something had unsynced the lane's stepper in Klipper without AFC knowing. The bridge now syncs the lane right before INDX's feed (`INDX_LOAD_FILAMENT`), checks in Klipper itself that the lane is on the extruder's motion queue, syncs it again if not, and stops before feeding if it still is not. Each bridge load now says `INDX-Bridge: lane1 follows T0's load` just before the feed.
+- **The lane did not follow INDX's load feed.** Found on a printer: after the ram, lane 1 stood still while T0's extruder fed, so the filament never reached the melt zone and INDX stopped with `filament load was not detected after 124.9 mm (0.0 J load energy)`. AFC skips a sync when its own record says the lane is synced already, and something had unsynced the lane's stepper in Klipper without AFC knowing. The bridge now syncs the lane right before INDX's feed (`INDX_LOAD_FILAMENT`), checks in Klipper itself that the lane is on the extruder's motion queue, syncs it again if not, and stops before feeding if it still is not. Each bridge load now says `INDX Bridge: lane1 follows T0's load` just before the feed.
 - The same check is used whenever the bridge keeps a lane synced.
 
 ## What Changed in 0.2.8

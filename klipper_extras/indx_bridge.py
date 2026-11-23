@@ -62,7 +62,7 @@ import logging
 import math
 import sys
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 EMPTY = ("", "NONE", "None", "none", None)
 DEFAULTS = {"ram_relief": 0.0, "unload_chunk": 8.0, "prime_test": False, "print_check": "warn",
             "load_type": "none", "spool_join": True}
@@ -82,7 +82,7 @@ NOZZLE_MAX_DEFAULT = 300.0                   # C: INDX's nozzle rating when noth
 LATE_CHECKS = (0.0, 1.0, 3.0, 6.0, 12.0)     # s after klippy:ready: AFC's PREP runs at 2 s
 
 
-class IndxAfc:
+class IndxBridge:
     def __init__(self, config):
         self.printer = config.get_printer()
         self.reactor = self.printer.get_reactor()
@@ -208,7 +208,7 @@ class IndxAfc:
                         if r._active_tool() == frm and r._print_state() == "printing":
                             self.reactor.register_callback(lambda e: self._start_join(frm, to))
                     except Exception:
-                        logging.exception("INDX-Bridge: spool join after a tool change")
+                        logging.exception("INDX Bridge: spool join after a tool change")
                 return ret
             r._watch = watched
 
@@ -227,7 +227,7 @@ class IndxAfc:
         try:
             self.remap._start_join(frm, to)
         except Exception:
-            logging.exception("INDX-Bridge: spool join T%s to T%s", frm, to)
+            logging.exception("INDX Bridge: spool join T%s to T%s", frm, to)
 
     def _ready(self):
         self.warnings = [w for w in self.warnings if w.startswith("this AFC has no cmd_AFC")]
@@ -277,7 +277,7 @@ class IndxAfc:
         for dt in LATE_CHECKS:
             self.reactor.register_callback(self._late, now + dt)
         for w in self.warnings:
-            self.gcode.respond_info("INDX-Bridge ! " + w)
+            self.gcode.respond_info("INDX Bridge ! " + w)
 
     # ---- names before 0.3.0 (indx-afc) -------------------------------------
 
@@ -305,7 +305,7 @@ class IndxAfc:
                     moved.append(nk)
             text = repr(nd)
             if '"' in text:
-                logging.info("INDX-Bridge: old settings not carried over (a value has a double quote): %s", text)
+                logging.info("INDX Bridge: old settings not carried over (a value has a double quote): %s", text)
                 return
             self.gcode.run_script('SAVE_VARIABLE VARIABLE=indx_settings VALUE="%s"' % text)
             # applied now too, in case INDX applied its settings first
@@ -315,11 +315,11 @@ class IndxAfc:
                     break
                 val = "'\"%s\"'" % v if isinstance(v, str) else "'%r'" % (v,)
                 self.gcode.run_script("SET_GCODE_VARIABLE MACRO=_INDX_BRIDGE VARIABLE=%s VALUE=%s" % (var, val))
-            self.gcode.respond_info("INDX-Bridge: %d setting%s carried over from indx-afc (%s)"
+            self.gcode.respond_info("INDX Bridge: %d setting%s carried over from indx-afc (%s)"
                                     % (len(moved), "" if len(moved) == 1 else "s",
                                        ", ".join(n.split(".", 1)[1] for n in moved) or "none new"))
         except Exception:
-            logging.exception("INDX-Bridge: carrying indx-afc's settings over")
+            logging.exception("INDX Bridge: carrying indx-afc's settings over")
 
     def _late(self, eventtime):
         try:
@@ -329,7 +329,7 @@ class IndxAfc:
             # Kalico refuses a script from a command outside the lock
             self.gcode.run_script("INDX_BRIDGE_SYNC QUIET=1")
         except Exception:
-            logging.exception("INDX-Bridge: start")
+            logging.exception("INDX Bridge: start")
 
     def _wrap_lane(self, lane):
         if getattr(lane, "_indx_bridge_wrapped", False):
@@ -385,7 +385,7 @@ class IndxAfc:
         if msg in self.warnings:
             return
         self.warnings.append(msg)
-        logging.warning("INDX-Bridge: %s", msg)
+        logging.warning("INDX Bridge: %s", msg)
 
     # ---- wrapped gcode commands --------------------------------------------
 
@@ -418,7 +418,7 @@ class IndxAfc:
                 fn = self.temp_fns[cmd] = (lambda gcmd, w=wait: self._cmd_temp(gcmd, w))
             if getattr(self.gcode, "ready_gcode_handlers", {}).get(cmd) is not fn:
                 self.gcode.register_command(cmd, None)
-                self.gcode.register_command(cmd, fn, desc="INDX-Bridge: nozzle temperature with INDX's heat rules (INDX_SET_TEMP); "
+                self.gcode.register_command(cmd, fn, desc="INDX Bridge: nozzle temperature with INDX's heat rules (INDX_SET_TEMP); "
                                                           "a T for a tool that is not on the head is ignored")
         missing = []
         for name, fn, desc in (
@@ -487,7 +487,7 @@ class IndxAfc:
             try:
                 self.gcode.run_script_from_command("SAVE_VARIABLE VARIABLE=indx_bridge_rammed VALUE=[%s]" % ",".join(str(x) for x in sorted(self.rammed)))
             except Exception:
-                logging.exception("INDX-Bridge: could not save indx_bridge_rammed")
+                logging.exception("INDX Bridge: could not save indx_bridge_rammed")
 
     def _vars(self):
         if self.sv is None:
@@ -498,7 +498,7 @@ class IndxAfc:
         try:
             return self.api.get_status(self.reactor.monotonic()) or {}
         except Exception:
-            logging.exception("INDX-Bridge: indx_api status")
+            logging.exception("INDX Bridge: indx_api status")
             return {}
 
     def _active_tool(self):
@@ -547,7 +547,7 @@ class IndxAfc:
             try:
                 return int(self.remap.slicer_to_dock(k))
             except Exception:
-                logging.exception("INDX-Bridge: slicer_to_dock")
+                logging.exception("INDX Bridge: slicer_to_dock")
         return k
 
     def _presets(self):
@@ -632,7 +632,7 @@ class IndxAfc:
         lane.sync_to_extruder()
         if self._lane_follows(lane) is False:
             drive = getattr(lane, "drive_stepper", None) or lane
-            logging.info("INDX-Bridge: %s was not on the extruder although AFC had it synced: syncing again", lane.name)
+            logging.info("INDX Bridge: %s was not on the extruder although AFC had it synced: syncing again", lane.name)
             for o in (drive, lane):
                 if hasattr(o, "_synced_to_extruder"):
                     o._synced_to_extruder = None if not isinstance(getattr(o, "_synced_to_extruder"), bool) else False
@@ -648,9 +648,9 @@ class IndxAfc:
         if lane is not None and self.enabled and self._active_tool() == d:
             self._apply(d)
             if not self._sync_lane(lane):
-                raise gcmd.error("INDX-Bridge: %s could not be synced to the extruder, so it would not follow T%d's load. "
+                raise gcmd.error("INDX Bridge: %s could not be synced to the extruder, so it would not follow T%d's load. "
                                  "Not feeding. Run INDX_BRIDGE_SYNC and try again; klippy.log has more" % (lane.name, d))
-            gcmd.respond_info("INDX-Bridge: %s follows T%d's load" % (lane.name, d))
+            gcmd.respond_info("INDX Bridge: %s follows T%d's load" % (lane.name, d))
         return prev(gcmd)
 
     def _reconcile(self):
@@ -659,8 +659,8 @@ class IndxAfc:
         try:
             self._apply(self._desired_dock())
         except Exception:
-            logging.exception("INDX-Bridge: reconcile")
-            self.gcode.respond_info("INDX-Bridge ! could not match AFC's lanes to the tool on the head (klippy.log). Run INDX_BRIDGE_SYNC before extruding.")
+            logging.exception("INDX Bridge: reconcile")
+            self.gcode.respond_info("INDX Bridge ! could not match AFC's lanes to the tool on the head (klippy.log). Run INDX_BRIDGE_SYNC before extruding.")
 
     def _ev_after_pickup(self, p):
         try:
@@ -701,7 +701,7 @@ class IndxAfc:
         try:
             self.gcode.run_script(script)
         except Exception:
-            logging.exception("INDX-Bridge: %s", script)
+            logging.exception("INDX Bridge: %s", script)
 
     # ---- AFC redirects -----------------------------------------------------
 
@@ -710,7 +710,7 @@ class IndxAfc:
     def _afc_change_tool(self, cur_lane, purge_length=None, restore_pos=True, new_extruder_temp=None, *args, **kw):
         k = self.lane_dock.get(cur_lane.name)
         if k is None:
-            raise self.gcode.error("INDX-Bridge: %s feeds no INDX tool ([indx_bridge] lanes), not changing" % cur_lane.name)
+            raise self.gcode.error("INDX Bridge: %s feeds no INDX tool ([indx_bridge] lanes), not changing" % cur_lane.name)
         # as INDX's own T<n>: the slicer's number through INDX's tool map
         cmd = "_INDX_CHANGE_TOOL TOOL=%d" % self._slicer_to_dock(k)
         if new_extruder_temp is not None:
@@ -720,7 +720,7 @@ class IndxAfc:
     def _afc_tool_load(self, cur_lane, purge_length=None, set_start_time=False, *args, **kw):
         d = self.lane_dock.get(cur_lane.name)
         if d is None:
-            self.afc.error.AFC_error("INDX-Bridge: %s feeds no INDX tool, not loading" % cur_lane.name, pause=False)
+            self.afc.error.AFC_error("INDX Bridge: %s feeds no INDX tool, not loading" % cur_lane.name, pause=False)
             return False
         self._load(d)
         return True
@@ -728,7 +728,7 @@ class IndxAfc:
     def _afc_tool_unload(self, cur_lane, set_start_time=True, force_unload=False, *args, **kw):
         d = self.lane_dock.get(cur_lane.name)
         if d is None:
-            self.afc.error.AFC_error("INDX-Bridge: %s feeds no INDX tool, not unloading" % cur_lane.name, pause=False)
+            self.afc.error.AFC_error("INDX Bridge: %s feeds no INDX tool, not unloading" % cur_lane.name, pause=False)
             return False
         self._unload(d)
         return True
@@ -737,7 +737,7 @@ class IndxAfc:
         d = self.lane_dock.get(cur_lane.name)
         if d is not None and self._has_filament(d):
             self.afc.error.AFC_error(
-                "INDX-Bridge: T%d still has %s's filament in it. Unload it first (INDX_BRIDGE_UNLOAD LANE=%s, or the "
+                "INDX Bridge: T%d still has %s's filament in it. Unload it first (INDX_BRIDGE_UNLOAD LANE=%s, or the "
                 "Unload button): ejecting now would pull it out of a cold nozzle." % (d, cur_lane.name, cur_lane.name), pause=False)
             return
         if d is not None:
@@ -756,7 +756,7 @@ class IndxAfc:
         try:
             err.reset_failure()
         except Exception:
-            logging.exception("INDX-Bridge: AFC reset_failure")
+            logging.exception("INDX Bridge: AFC reset_failure")
 
     # ---- load --------------------------------------------------------------
 
@@ -770,7 +770,7 @@ class IndxAfc:
             self._set_rammed(t, False)    # its filament is gone from the lane since
         need = (not self._has_filament(t)) and t not in self.rammed
         if need and not lane.load_state and ram != 1:
-            gcmd.respond_info("INDX-Bridge: %s has no filament at its load sensor: T%d loads as INDX does by hand (push the filament in to the gears)"
+            gcmd.respond_info("INDX Bridge: %s has no filament at its load sensor: T%d loads as INDX does by hand (push the filament in to the gears)"
                               % (lane.name, t))
             need = False
         self.in_load = True
@@ -793,23 +793,23 @@ class IndxAfc:
         lane = self.lanes[d]
         SM, AA, ST, MW = self.enums
         if lane.buffer_obj is None or getattr(lane.extruder_obj, "tool_start", None) != "buffer":
-            raise self.gcode.error("INDX-Bridge: %s cannot ram: it needs its own buffer (buffer:) and pin_tool_start: buffer in [AFC_extruder]" % lane.name)
+            raise self.gcode.error("INDX Bridge: %s cannot ram: it needs its own buffer (buffer:) and pin_tool_start: buffer in [AFC_extruder]" % lane.name)
         if not getattr(self.afc, "homing_enabled", True) or not getattr(self.afc, "home_to_tool", True):
-            raise self.gcode.error("INDX-Bridge: %s cannot ram: [AFC] homing_enabled and home_to_tool must be True" % lane.name)
+            raise self.gcode.error("INDX Bridge: %s cannot ram: [AFC] homing_enabled and home_to_tool must be True" % lane.name)
         if not lane.load_state:
-            raise self.gcode.error("INDX-Bridge: %s has no filament at its load sensor: insert the spool first" % lane.name)
+            raise self.gcode.error("INDX Bridge: %s has no filament at its load sensor: insert the spool first" % lane.name)
         # 1. The empty tool onto the head first: filament pushed into a docked
         #    tool's gears is a misload for INDX
         self._pickup_empty(d, "ramming")
         # 2. Ram the filament to the gears, the lane unsynced (nothing is
         #    synced: the tool is still empty)
         self._apply(None)
-        self.gcode.respond_info("INDX-Bridge: %s to T%d's gears (%.0f mm at most, until its buffer triggers)" % (lane.name, d, lane.dist_hub))
+        self.gcode.respond_info("INDX Bridge: %s to T%d's gears (%.0f mm at most, until its buffer triggers)" % (lane.name, d, lane.dist_hub))
         lane.do_enable(True)
         homed, moved, warn = lane.unit_obj.load_then_home(lane, lane.dist_hub, AA.DYNAMIC, lane.get_toolhead_endstop())
         if warn == MW.ERROR or not lane.get_toolhead_pre_sensor_state():
             lane.do_enable(False)
-            raise self.gcode.error("INDX-Bridge: %s did not reach T%d's gears (moved %.0f mm, the buffer did not see the ram). "
+            raise self.gcode.error("INDX Bridge: %s did not reach T%d's gears (moved %.0f mm, the buffer did not see the ram). "
                                    "Check the path and dist_hub, then try again." % (lane.name, d, moved or 0.0))
         relief = float(self._setting("ram_relief") or 0.0)
         if relief > 0:
@@ -825,7 +825,7 @@ class IndxAfc:
             self.gcode.run_script_from_command("INDX_CHANGE_TOOL TOOL=%d RETURN=none" % d)
         self.printer.lookup_object("toolhead").wait_moves()
         if self._active_tool() != d:
-            raise self.gcode.error("INDX-Bridge: T%d is not on the head after the pickup; not %s" % (d, what))
+            raise self.gcode.error("INDX Bridge: T%d is not on the head after the pickup; not %s" % (d, what))
 
     def _material(self, lane, given):
         presets = self._presets()
@@ -841,7 +841,7 @@ class IndxAfc:
             lt = str(self._setting("load_type") or "").strip().upper()
             t = lt if lt and lt != "NONE" else ""
         if t and t not in presets:
-            raise self.gcode.error("INDX-Bridge: %s is not one of INDX's filament presets (%s)" % (t, ", ".join(presets)))
+            raise self.gcode.error("INDX Bridge: %s is not one of INDX's filament presets (%s)" % (t, ", ".join(presets)))
         return t
 
     def _color(self, lane, given):
@@ -852,14 +852,14 @@ class IndxAfc:
         """Loads and unloads: never while printing; in a paused print only
         the tool on the head. Returns True for a paused print."""
         if not self.enabled:
-            raise self.gcode.error("INDX-Bridge: no %s, %s" % (what, self.why_off))
+            raise self.gcode.error("INDX Bridge: no %s, %s" % (what, self.why_off))
         st = self._print_state()
         paused = self._paused()
         if st == "printing" and not paused:
-            raise self.gcode.error("INDX-Bridge: no %s while printing. PAUSE first: a paused print can %s the tool on the head." % (what, what))
+            raise self.gcode.error("INDX Bridge: no %s while printing. PAUSE first: a paused print can %s the tool on the head." % (what, what))
         if paused and self._active_tool() != d:
             a = self._active_tool()
-            raise self.gcode.error("INDX-Bridge: the print is paused with %s on the head: only that tool can %s now (T%d is parked)."
+            raise self.gcode.error("INDX Bridge: the print is paused with %s on the head: only that tool can %s now (T%d is parked)."
                                    % (("T%d" % a) if a is not None and a >= 0 else "no tool", what, d))
         return paused
 
@@ -867,16 +867,16 @@ class IndxAfc:
         lane = self.lanes[d]
         paused = self._gate("load", d)
         if self._has_filament(d):
-            raise self.gcode.error("INDX-Bridge: T%d already has filament (INDX records %s). Unload it first."
+            raise self.gcode.error("INDX Bridge: T%d already has filament (INDX records %s). Unload it first."
                                    % (d, self._vars().get("t%d_material" % d)))
         if not lane.load_state:
-            raise self.gcode.error("INDX-Bridge: %s has no filament at its load sensor: insert the spool first" % lane.name)
+            raise self.gcode.error("INDX Bridge: %s has no filament at its load sensor: insert the spool first" % lane.name)
         t = self._material(lane, typ)
         if not t:
-            raise self.gcode.error("INDX-Bridge: which material is in %s? Give TYPE= (%s), set it on the spool in AFC, or set the Load material setting"
+            raise self.gcode.error("INDX Bridge: which material is in %s? Give TYPE= (%s), set it on the spool in AFC, or set the Load material setting"
                                    % (lane.name, ", ".join(self._presets())))
         col = self._color(lane, color)
-        self.gcode.respond_info("INDX-Bridge: loading %s into T%d (%s%s)" % (lane.name, d, t, (", #" + col) if col else ""))
+        self.gcode.respond_info("INDX Bridge: loading %s into T%d (%s%s)" % (lane.name, d, t, (", #" + col) if col else ""))
         cmd = "LOAD_FILAMENT TOOL=%d TYPE=%s" % (d, t)
         if col:
             cmd += " COLOR=%s" % col
@@ -889,11 +889,11 @@ class IndxAfc:
         self.afc.save_vars()
         if paused:
             self._pause_leave(back, reheat=True)
-            self.gcode.respond_info("INDX-Bridge: %s loaded into T%d. RESUME when the nozzle is back at temperature." % (lane.name, d))
+            self.gcode.respond_info("INDX Bridge: %s loaded into T%d. RESUME when the nozzle is back at temperature." % (lane.name, d))
             return
-        self.gcode.respond_info("INDX-Bridge: %s loaded into T%d" % (lane.name, d))
+        self.gcode.respond_info("INDX Bridge: %s loaded into T%d" % (lane.name, d))
         if self._setting("prime_test") and self.printer.lookup_object("gcode_macro INDX_PRIME_TEST", None) is not None:
-            self.gcode.respond_info("INDX-Bridge: prime test of T%d (the flow check reads the extrusion force)" % d)
+            self.gcode.respond_info("INDX Bridge: prime test of T%d (the flow check reads the extrusion force)" % d)
             self.gcode.run_script_from_command("INDX_PRIME_TEST")
 
     # ---- unload ------------------------------------------------------------
@@ -915,7 +915,7 @@ class IndxAfc:
         # In parts no longer than the buffer takes, the lane following each.
         lane.unsync_to_extruder()
         lane.do_enable(True)
-        self.gcode.respond_info("INDX-Bridge: T%d out of its gears, %.0f mm in %d parts, %s following" % (t, length, n, lane.name))
+        self.gcode.respond_info("INDX Bridge: T%d out of its gears, %.0f mm in %d parts, %s following" % (t, length, n, lane.name))
         for _ in range(n):
             self.gcode.run_script_from_command("_TC_LATCH_MOVE E=-%.3f F=%.0f%s" % (step, speed * 60.0, (" I=%s" % cur) if cur is not None else ""))
             lane.move_advanced(-step, SM.SHORT)
@@ -937,7 +937,7 @@ class IndxAfc:
         self._set_rammed(d, False)
         if warn == MW.ERROR:
             lane.do_enable(False)
-            raise self.gcode.error("INDX-Bridge: %s did not get back to its load sensor" % lane.name)
+            raise self.gcode.error("INDX Bridge: %s did not get back to its load sensor" % lane.name)
         tries = 0
         while not lane.raw_load_state and lane.prep_state and tries < 5:
             tries += 1
@@ -962,11 +962,11 @@ class IndxAfc:
                 self.unloading = None
             self.printer.lookup_object("toolhead").wait_moves()
             if self._has_filament(d):
-                raise self.gcode.error("INDX-Bridge: INDX_UNLOAD did not finish for T%d (still loaded); %s stays where it is" % (d, lane.name))
+                raise self.gcode.error("INDX Bridge: INDX_UNLOAD did not finish for T%d (still loaded); %s stays where it is" % (d, lane.name))
         self._lane_home(d)
         if paused:
             self._pause_leave(back, reheat=False)
-        self.gcode.respond_info("INDX-Bridge: T%d unloaded, %s back at its load sensor%s" % (
+        self.gcode.respond_info("INDX Bridge: T%d unloaded, %s back at its load sensor%s" % (
             d, lane.name, "" if lane.prep_state else " (its spool is out: take the end out of the lane)"))
 
     # ---- a paused print ----------------------------------------------------
@@ -998,7 +998,7 @@ class IndxAfc:
                       "RESTORE_GCODE_STATE NAME=_indx_bridge_pause"]
             self.gcode.run_script_from_command("\n".join(lines))
         if reheat and self.resume_temp:
-            self.gcode.respond_info("INDX-Bridge: nozzle back to the print's %.0f C" % self.resume_temp)
+            self.gcode.respond_info("INDX Bridge: nozzle back to the print's %.0f C" % self.resume_temp)
             self.gcode.run_script_from_command("INDX_SET_TEMP TARGET=%.1f WAIT=0 SRC=INDX_BRIDGE" % self.resume_temp)
 
     # ---- runout --------------------------------------------------------------
@@ -1064,10 +1064,10 @@ class IndxAfc:
                 # or pauses the print without a partner
                 return
             if self._join_ready():
-                self.gcode.respond_info("INDX-Bridge: %s (T%d) ran out: INDX's spool join decides" % (lane.name, d))
+                self.gcode.respond_info("INDX Bridge: %s (T%d) ran out: INDX's spool join decides" % (lane.name, d))
                 self.reactor.register_callback(lambda e, d=d: self._indx_runout(d))
                 return
-            self.gcode.respond_info("INDX-Bridge: %s (T%d) ran out. Paused: INDX_BRIDGE_UNLOAD LANE=%s, change the spool, INDX_BRIDGE_LOAD LANE=%s, then RESUME."
+            self.gcode.respond_info("INDX Bridge: %s (T%d) ran out. Paused: INDX_BRIDGE_UNLOAD LANE=%s, change the spool, INDX_BRIDGE_LOAD LANE=%s, then RESUME."
                                     % (lane.name, d, lane.name, lane.name))
         if name == "_perform_infinite_runout":
             # AFC's infinite spool unloads into a lane on the same extruder;
@@ -1081,8 +1081,8 @@ class IndxAfc:
         try:
             self.remap._runout(d)
         except Exception:
-            logging.exception("INDX-Bridge: spool join for T%d", d)
-            self.gcode.respond_info("INDX-Bridge ! the spool join for T%d failed; pausing" % d)
+            logging.exception("INDX Bridge: spool join for T%d", d)
+            self.gcode.respond_info("INDX Bridge ! the spool join for T%d failed; pausing" % d)
             self._run_locked("PAUSE")
 
     # ---- print start ---------------------------------------------------------
@@ -1112,8 +1112,8 @@ class IndxAfc:
             return
         msg = "; ".join(bad)
         if mode == "stop":
-            raise self.gcode.error("INDX-Bridge: the print start stopped: " + msg)
-        self.gcode.respond_info("INDX-Bridge ! " + msg)
+            raise self.gcode.error("INDX Bridge: the print start stopped: " + msg)
+        self.gcode.respond_info("INDX Bridge ! " + msg)
         self._notify(msg)
 
     def _notify(self, msg, title="Box Turtle lanes"):
@@ -1124,7 +1124,7 @@ class IndxAfc:
             self.gcode.run_script_from_command('_INDX_NOTE LEVEL=warn TITLE="%s" MSG="%s"'
                                                % (title, msg.replace('"', "'").replace(";", ",")))
         except Exception:
-            logging.exception("INDX-Bridge: notify")
+            logging.exception("INDX Bridge: notify")
 
     # ---- M104 / M109 ---------------------------------------------------------
 
@@ -1143,12 +1143,12 @@ class IndxAfc:
             # G-code error would end it, so the print pauses instead.
             msg = "%s S%s is over the INDX nozzle's rating of %.0f C: nothing heated" % (name, raw, cap)
             if self._print_state() == "printing":
-                self.gcode.respond_info("INDX-Bridge ! %s. The print pauses: fix the temperature in the slicer, "
+                self.gcode.respond_info("INDX Bridge ! %s. The print pauses: fix the temperature in the slicer, "
                                         "then RESUME or cancel." % msg)
                 self._notify("%s. The print paused." % msg, title="Nozzle temperature")
                 self.gcode.run_script_from_command("PAUSE")
                 return
-            raise gcmd.error("INDX-Bridge: %s." % msg)
+            raise gcmd.error("INDX Bridge: %s." % msg)
         args = "TARGET=%s WAIT=%d SRC=%s" % (raw, wait, name)
         if "T" in p:
             try:
@@ -1167,11 +1167,11 @@ class IndxAfc:
         n = gcmd.get("LANE", None)
         if n is not None:
             if n not in self.lane_dock:
-                raise gcmd.error("INDX-Bridge: %s feeds no INDX tool; [indx_bridge] lanes: %s" % (n, ", ".join(self.lane_dock)))
+                raise gcmd.error("INDX Bridge: %s feeds no INDX tool; [indx_bridge] lanes: %s" % (n, ", ".join(self.lane_dock)))
             return self.lane_dock[n]
         d = gcmd.get_int("TOOL", None)
         if d is None or d not in self.lanes:
-            raise gcmd.error("INDX-Bridge: give LANE= or TOOL= (tools with a lane: %s)" % ", ".join("T%d" % x for x in sorted(self.lanes)))
+            raise gcmd.error("INDX Bridge: give LANE= or TOOL= (tools with a lane: %s)" % ", ".join("T%d" % x for x in sorted(self.lanes)))
         return d
 
     def _order(self, docks):
@@ -1187,23 +1187,23 @@ class IndxAfc:
 
     def cmd_LOAD_ALL(self, gcmd):
         if self._print_state() == "printing" or self._paused():
-            raise gcmd.error("INDX-Bridge: no load of every lane during a print")
+            raise gcmd.error("INDX Bridge: no load of every lane during a print")
         typ = gcmd.get("TYPE", "")
         docks = [d for d, lane in self.lanes.items() if lane.load_state and not self._has_filament(d)]
         if not docks:
-            gcmd.respond_info("INDX-Bridge: nothing to load: every lane with filament already has it in its tool")
+            gcmd.respond_info("INDX Bridge: nothing to load: every lane with filament already has it in its tool")
             return
         for d in docks:
             if not self._material(self.lanes[d], typ):
-                raise gcmd.error("INDX-Bridge: which material is in %s? Give TYPE= for the lanes without one in AFC. Nothing loaded." % self.lanes[d].name)
+                raise gcmd.error("INDX Bridge: which material is in %s? Give TYPE= for the lanes without one in AFC. Nothing loaded." % self.lanes[d].name)
         for d in self._order(docks):
             self._load(d, typ)
 
     def cmd_CALIBRATE(self, gcmd):
         if not self.enabled:
-            raise gcmd.error("INDX-Bridge: no calibration, %s" % self.why_off)
+            raise gcmd.error("INDX Bridge: no calibration, %s" % self.why_off)
         if self._print_state() == "printing" or self._paused():
-            raise gcmd.error("INDX-Bridge: no calibration during a print")
+            raise gcmd.error("INDX Bridge: no calibration during a print")
         maxd = gcmd.get_float("MAX", CAL_MAX, minval=100., maxval=10000.)
         save = gcmd.get_int("SAVE", 1, minval=0, maxval=1)
         if str(gcmd.get("LANE", "")).strip().upper() == "ALL":
@@ -1217,13 +1217,13 @@ class IndxAfc:
                 else:
                     docks.append(d)
             if skipped:
-                gcmd.respond_info("INDX-Bridge: not calibrating " + "; ".join(skipped))
+                gcmd.respond_info("INDX Bridge: not calibrating " + "; ".join(skipped))
             if not docks:
                 return
         else:
             docks = [self._lane_arg(gcmd)]
         lines = [self._calibrate(d, maxd, save) for d in self._order(docks)]
-        gcmd.respond_info("INDX-Bridge calibration:\n" + "\n".join(lines))
+        gcmd.respond_info("INDX Bridge calibration:\n" + "\n".join(lines))
 
     def _calibrate(self, d, maxd, save):
         """Measures the lane's path to its tool's gears the way the ram finds
@@ -1245,17 +1245,17 @@ class IndxAfc:
         lane = self.lanes[d]
         SM, AA, ST, MW = self.enums
         if lane.buffer_obj is None or getattr(lane.extruder_obj, "tool_start", None) != "buffer":
-            raise self.gcode.error("INDX-Bridge: %s cannot be calibrated: it needs its own buffer (buffer:) and pin_tool_start: buffer in [AFC_extruder]" % lane.name)
+            raise self.gcode.error("INDX Bridge: %s cannot be calibrated: it needs its own buffer (buffer:) and pin_tool_start: buffer in [AFC_extruder]" % lane.name)
         if self._has_filament(d):
-            raise self.gcode.error("INDX-Bridge: T%d has filament (INDX records %s): INDX_BRIDGE_UNLOAD LANE=%s first"
+            raise self.gcode.error("INDX Bridge: T%d has filament (INDX records %s): INDX_BRIDGE_UNLOAD LANE=%s first"
                                    % (d, self._vars().get("t%d_material" % d), lane.name))
         if not lane.load_state:
-            raise self.gcode.error("INDX-Bridge: %s has no filament at its load sensor: insert the spool first" % lane.name)
+            raise self.gcode.error("INDX Bridge: %s has no filament at its load sensor: insert the spool first" % lane.name)
         if d in self.rammed:
-            raise self.gcode.error("INDX-Bridge: %s's filament is already at T%d's gears (an unfinished load): INDX_BRIDGE_LOAD or INDX_BRIDGE_UNLOAD it first"
+            raise self.gcode.error("INDX Bridge: %s's filament is already at T%d's gears (an unfinished load): INDX_BRIDGE_LOAD or INDX_BRIDGE_UNLOAD it first"
                                    % (lane.name, d))
         if lane.get_toolhead_pre_sensor_state():
-            raise self.gcode.error("INDX-Bridge: %s's buffer shows its advance switch closed before anything moved. "
+            raise self.gcode.error("INDX Bridge: %s's buffer shows its advance switch closed before anything moved. "
                                    "At rest it must be open (QUERY_BUFFER, check the wiring)" % lane.name)
         self._pickup_empty(d, "calibrating")
         self._apply(None)
@@ -1263,7 +1263,7 @@ class IndxAfc:
         lane.do_enable(True)
         endstop = lane.get_toolhead_endstop()
         old = lane.dist_hub
-        self.gcode.respond_info("INDX-Bridge: measuring %s to T%d's gears (up to %.0f mm, until its buffer triggers)" % (lane.name, d, maxd))
+        self.gcode.respond_info("INDX Bridge: measuring %s to T%d's gears (up to %.0f mm, until its buffer triggers)" % (lane.name, d, maxd))
         try:
             # AFC's own calibration speed (its short-move speed): AFC never
             # homes to a buffer at its long-move speed
@@ -1274,12 +1274,12 @@ class IndxAfc:
                 # not try another homing move to bring it back: it would most
                 # likely fail the same way
                 raise self.gcode.error(
-                    "INDX-Bridge: AFC's homing move for %s failed, so the calibration stopped (AFC.log, near 'Homing start endstop=', says why). "
+                    "INDX Bridge: AFC's homing move for %s failed, so the calibration stopped (AFC.log, near 'Homing start endstop=', says why). "
                     "The filament may be partly down the tube: run LANE_UNLOAD LANE=%s or pull it back to the load sensor by hand. "
                     "T%d is on the head, empty. dist_hub is unchanged." % (lane.name, lane.name, d))
             if not lane.get_toolhead_pre_sensor_state():
                 self._cal_home(d, (fast or maxd) + CAL_BACKOFF, old)
-                raise self.gcode.error("INDX-Bridge: %s did not reach T%d's gears within %.0f mm (the buffer's advance switch never closed). "
+                raise self.gcode.error("INDX Bridge: %s did not reach T%d's gears within %.0f mm (the buffer's advance switch never closed). "
                                        "The lane is back at its load sensor. Check the path, or give a larger MAX=." % (lane.name, d, maxd))
             # back off until the switch opens, then home again slowly
             back = 0.0
@@ -1288,11 +1288,11 @@ class IndxAfc:
                 back += CAL_BACKOFF
             if lane.get_toolhead_pre_sensor_state():
                 self._cal_home(d, fast, old)
-                raise self.gcode.error("INDX-Bridge: %s's advance switch stayed closed after backing off %.0f mm: check the buffer" % (lane.name, back))
+                raise self.gcode.error("INDX Bridge: %s's advance switch stayed closed after backing off %.0f mm: check the buffer" % (lane.name, back))
             _, slow, warn = lane.move_to(back + CAL_BACKOFF, SM.SHORT, endstop=endstop, use_homing=True)
             if warn == MW.ERROR or not lane.get_toolhead_pre_sensor_state():
                 self._cal_home(d, fast, old)
-                raise self.gcode.error("INDX-Bridge: %s's slow pass did not trigger the buffer again: check the buffer and try again" % lane.name)
+                raise self.gcode.error("INDX Bridge: %s's slow pass did not trigger the buffer again: check the buffer and try again" % lane.name)
         except Exception:
             lane.do_enable(False)
             raise
@@ -1322,10 +1322,10 @@ class IndxAfc:
 
     def cmd_UNLOAD_ALL(self, gcmd):
         if self._print_state() == "printing" or self._paused():
-            raise gcmd.error("INDX-Bridge: no unload of every tool during a print")
+            raise gcmd.error("INDX Bridge: no unload of every tool during a print")
         docks = [d for d in self.lanes if self._has_filament(d)]
         if not docks:
-            gcmd.respond_info("INDX-Bridge: nothing to unload")
+            gcmd.respond_info("INDX Bridge: nothing to unload")
             return
         for d in self._order(docks):
             self._unload(d)
@@ -1338,7 +1338,7 @@ class IndxAfc:
             self.pulled = None
             return
         self._lane_home(d)
-        gcmd.respond_info("INDX-Bridge: %s pulled back to its load sensor: nothing to pull out of T%d by hand" % (self.lanes[d].name, d))
+        gcmd.respond_info("INDX Bridge: %s pulled back to its load sensor: nothing to pull out of T%d by hand" % (self.lanes[d].name, d))
 
     def cmd_SYNC(self, gcmd):
         if not self.ready:
@@ -1353,10 +1353,10 @@ class IndxAfc:
                 have = str(self._vars().get("t%d_color" % d) or "").lstrip("#").lower()
                 if col and mat not in EMPTY and col != have:
                     self.gcode.run_script_from_command("INDX_SET_MATERIAL TOOL=%d TYPE=%s COLOR=%s" % (d, mat, col))
-                    gcmd.respond_info("INDX-Bridge: T%d's color in INDX is now #%s (%s)" % (d, col, lane.name))
+                    gcmd.respond_info("INDX Bridge: T%d's color in INDX is now #%s (%s)" % (d, col, lane.name))
         if not gcmd.get_int("QUIET", 0):
             cur = self.afc.function.get_current_lane_obj()
-            gcmd.respond_info("INDX-Bridge: AFC's loaded lane is now %s" % (cur.name if cur else "none"))
+            gcmd.respond_info("INDX Bridge: AFC's loaded lane is now %s" % (cur.name if cur else "none"))
 
     def _commands_state(self):
         h = getattr(self.gcode, "ready_gcode_handlers", {})
@@ -1444,4 +1444,4 @@ def _afc_enums(lane):
 
 
 def load_config(config):
-    return IndxAfc(config)
+    return IndxBridge(config)
