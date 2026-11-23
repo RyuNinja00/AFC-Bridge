@@ -38,7 +38,7 @@ cd ~/indx-bridge && git pull && bash install.sh
 sudo systemctl restart klipper
 ```
 
-Read the guide's What Changed entry for the new version first.
+Read the new version's entry in [CHANGELOG.md](CHANGELOG.md) first.
 
 ## Files
 
@@ -49,5 +49,6 @@ Read the guide's What Changed entry for the new version first.
 | `install.sh` | Installs, re-installs (`bash install.sh`) or removes (`bash install.sh remove`) |
 | `tools/check_compat.py` | Checks the installed INDX, AFC and Kalico for everything the bridge relies on |
 | `tests/test_indx_bridge.py` | Tests: `python3 tests/test_indx_bridge.py [path/to/indx_remap.py]` |
-| `docs/indx-bridge.md` | The guide: design, install, settings, commands, test plan, changes |
+| `docs/indx-bridge.md` | The guide: design, install, settings, commands, test plan |
+| `CHANGELOG.md` | What changed in each version, and what to do after updating |
 | `docs/spool-join-review.md`, `patches/` | Notes and a patch on INDX beta.5/beta.6 spool join bugs, fixed in beta.7 |
