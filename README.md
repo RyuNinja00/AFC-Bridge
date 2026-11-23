@@ -31,10 +31,6 @@ bash ~/indx-bridge/install.sh
 
 Then follow **[the guide](docs/indx-bridge.md)**: AFC settings, `[indx_bridge]` in `printer.cfg`, calibration and the test plan. Install step 6 onward covers the bridge itself.
 
-## Moving from indx-afc
-
-Up to 0.2.11 this was called indx-afc (`~/indx-afc`, `[indx_afc]`, `INDX_AFC_*` commands). See *Moving from indx-afc* in the guide: a fresh clone into `~/indx-bridge`, and `install.sh` takes care of the rest. The commands are now `INDX_BRIDGE_*`; the old names are gone.
-
 ## Update
 
 ```sh
