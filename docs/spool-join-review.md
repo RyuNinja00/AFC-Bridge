@@ -60,7 +60,7 @@ Unchanged; the pause reason given ("a tool manager owns the tools") is wrong in 
 
 Unchanged. The join switches the moment the spool-side sensor reads empty, leaving the sensor-to-gears length in the tool. With a Box Turtle that is the whole `dist_hub` (often 800 mm or more). An optional `join_after_mm` would use it up.
 
-## With the INDX-AFC Bridge
+## With the INDX Bridge (unofficial; called indx-afc before 0.3.0)
 
 The bridge (v0.2.1) works around findings 1 to 4 at runtime without changing INDX's files: it wraps `INDX_RUNOUT` and `_INDX_REMAP_JOINED` to defer, wraps `_watch` to start the held join, and tells `indx_remap` that its manager only feeds the tools. It hands each lane's prep sensor to the spool join, so no `runout_sensors:` line is needed.
 

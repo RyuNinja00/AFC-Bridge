@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# Tests for klipper_extras/indx_afc.py against fake Klipper, AFC and INDX
+# Tests for klipper_extras/indx_bridge.py against fake Klipper, AFC and INDX
 # objects.
-#   python3 tests/test_indx_afc.py
-#   python3 tests/test_indx_afc.py ~/INDX_V1/klipper_extras/indx_remap.py
+#   python3 tests/test_indx_bridge.py
+#   python3 tests/test_indx_bridge.py ~/INDX_V1/klipper_extras/indx_remap.py
 #       also runs the spool join tests against INDX's real indx_remap.py
 #
 # The fakes follow the interfaces the bridge uses (AFC main 5ea84ea / DEV
@@ -60,7 +60,7 @@ afc_mod = types.ModuleType("somewhere.AFC_lane_mod")
 afc_mod.SpeedMode, afc_mod.AssistActive, afc_mod.AFCLaneState, afc_mod.AFCMoveWarning = SpeedMode, AssistActive, AFCLaneState, AFCMoveWarning
 sys.modules["somewhere.AFC_lane_mod"] = afc_mod
 
-import indx_afc  # noqa: E402
+import indx_bridge  # noqa: E402
 
 LOG = []
 NODEF = object()
@@ -115,7 +115,9 @@ class Gcmd:
         if len(self.name) > 1 and self.name[0] in "MG" and self.name[1:].isdigit():
             self.params = {x[0].upper(): x[1:] for x in w[1:]}
         else:
-            self.params = {x.split("=", 1)[0].upper(): x.split("=", 1)[1].strip('"') for x in w[1:] if "=" in x}
+            # as Klipper/Kalico parse extended commands: shlex, quotes taken off
+            import shlex
+            self.params = {x.split("=", 1)[0].upper(): x.split("=", 1)[1] for x in shlex.split(self.raw) if "=" in x}
 
     def get_command_parameters(self):
         return dict(self.params)
@@ -397,7 +399,7 @@ class Lane(BaseLane):
         self.loaded_to_hub = False
         self.net = 0.0
         self.fullname = "AFC_stepper " + name
-        # a physical model for INDX_AFC_CALIBRATE (None: the old, simple behaviour)
+        # a physical model for INDX_BRIDGE_CALIBRATE (None: the old, simple behaviour)
         self.path = None          # mm from the load sensor to the tool's gears
         self.tip = 0.0            # mm the filament tip is past the load sensor
         self.comp = 6.0           # mm more the lane pushes before the advance switch closes
@@ -590,7 +592,7 @@ class AFC:
 # ---- INDX fakes -----------------------------------------------------------
 
 class Manager:
-    name = "indx_afc"
+    name = "indx_bridge"
     owns_tool_commands = False
 
 
@@ -728,7 +730,7 @@ class Indx:
         printer.objects["gcode_macro INDX_PRIME_TEST"] = Macro()
         printer.objects["gcode_macro TOOL_POSITIONS"] = Macro(tool_count=4, no_heat_tools=[])
         printer.objects["gcode_macro _TOOLCHANGE_VARS"] = Macro(change_busy=0)
-        printer.objects["gcode_macro _INDX_AFC"] = Macro(spool_join=True, print_check="warn", load_type="none", prime_test=False,
+        printer.objects["gcode_macro _INDX_BRIDGE"] = Macro(spool_join=True, print_check="warn", load_type="none", prime_test=False,
                                                          ram_relief=0.0, unload_chunk=8.0)
 
     @property
@@ -878,17 +880,15 @@ def setup(manager=True, opts=None, pre=None, remap_cls=Remap):
     p.objects["indx_remap"] = remap
     def save_variable(g, sv=p.objects["save_variables"].allVariables):
         import ast
-        v = g.get("VALUE")
-        assert " " not in v and '"' not in v, v       # as Klipper parses it
-        sv[g.get("VARIABLE")] = ast.literal_eval(v)
+        sv[g.get("VARIABLE")] = ast.literal_eval(g.get("VALUE"))
     if "SAVE_VARIABLE" not in p.gcode.ready_gcode_handlers:
         p.gcode.register_command("SAVE_VARIABLE", save_variable)
     if pre:
         pre(p, afc)
     o = {"lanes": "lane1, lane2, lane3, lane4"}
     o.update(opts or {})
-    b = indx_afc.IndxAfc(Config(p, o))
-    p.objects["indx_afc"] = b
+    b = indx_bridge.IndxAfc(Config(p, o))
+    p.objects["indx_bridge"] = b
     p.send_event("klippy:connect")
     p.send_event("klippy:ready")
     afc.ready()                 # AFC's ready after the bridge's: the worst order
@@ -927,16 +927,16 @@ def run_all():
           g.ready_gcode_handlers["M104"] is b.temp_fns["M104"] and g.ready_gcode_handlers["M109"] is b.temp_fns["M109"])
     check("ready: the bridge's commands all in place", b._commands_state() == [], b._commands_state())
     prev = dict(b.prev)
-    g.cmd("INDX_AFC_SYNC")
-    g.cmd("INDX_AFC_SYNC")
+    g.cmd("INDX_BRIDGE_SYNC")
+    g.cmd("INDX_BRIDGE_SYNC")
     check("ready: checking again does not wrap a command twice", b.prev == prev)
     g.register_command("M104", None)
     g.register_command("M104", lambda gc: None)
     check("status: a command taken by someone else is reported", b._commands_state() == ["M104"], b._commands_state())
-    g.cmd("INDX_AFC_SYNC")
+    g.cmd("INDX_BRIDGE_SYNC")
     check("sync: takes it back", b._commands_state() == [])
-    g.cmd("INDX_AFC_STATUS")
-    check("status prints", any("INDX-AFC bridge 0.2.11: on" in m for m in g.info), g.info[-1:])
+    g.cmd("INDX_BRIDGE_STATUS")
+    check("status prints", any("INDX Bridge 0.3.0: on" in m for m in g.info), g.info[-1:])
     check("get_status for macros and the page", b.get_status(0)["enabled"] and b.get_status(0)["sensors"]["0"] == "lane1_prep")
 
     def bad(p2, afc2):
@@ -987,8 +987,8 @@ def run_all():
     p.indx.by_hand("stopped_park")
     check("stopped park (beta.6, T0 kept on the head, not verified): lane1 unsynced, it may be in its dock",
           synced(afc) == [] and afc.ext.lane_loaded is None, (synced(afc), afc.ext.lane_loaded))
-    g.cmd("INDX_AFC_SYNC")
-    check("stopped park: INDX_AFC_SYNC does not sync the suspect tool's lane either", synced(afc) == [], synced(afc))
+    g.cmd("INDX_BRIDGE_SYNC")
+    check("stopped park: INDX_BRIDGE_SYNC does not sync the suspect tool's lane either", synced(afc) == [], synced(afc))
     p.indx.by_hand("seat", 0)
     check("stopped park, then INDX_SEAT_TOOL_BY_HAND TOOL=0 LOCKED=1: lane1 synced again", synced(afc) == ["lane1"], synced(afc))
     g.cmd("_INDX_CHANGE_TOOL TOOL=3")
@@ -1004,7 +1004,7 @@ def run_all():
     p.gcode.cmd("_INDX_CHANGE_TOOL TOOL=1")
     check("INDX has no manager: bridge off, no lane ever synced", not b.enabled and synced(afc) == [], synced(afc))
     check("INDX has no manager: warned", any("NOT be synced" in w for w in b.warnings), b.warnings)
-    r = err(lambda: p.gcode.cmd("INDX_AFC_LOAD LANE=lane1"))
+    r = err(lambda: p.gcode.cmd("INDX_BRIDGE_LOAD LANE=lane1"))
     check("INDX has no manager: loads refused", r and "tool manager" in r, r)
 
     def stale(p2, afc2):
@@ -1087,7 +1087,7 @@ def run_all():
     indx = p.indx
     indx.drop_sync_before_feed = True
     del LOG[:]
-    p.gcode.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=ABS")
+    p.gcode.cmd("INDX_BRIDGE_LOAD LANE=lane1 TYPE=ABS")
     check("lane unsynced in Klipper while AFC still has it synced: synced again before INDX's feed, and it follows",
           "feed T0 following=lane1" in LOG and any("lane1 follows T0's load" in l for l in LOG), LOG)
     indx.drop_sync_before_feed = False
@@ -1096,7 +1096,7 @@ def run_all():
     l1 = afc.lanes["lane1"]
     l1.enabled = False
     g = p.gcode
-    g.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=ABS")
+    g.cmd("INDX_BRIDGE_LOAD LANE=lane1 TYPE=ABS")
     check("after a bridge load the lane that follows has its motor on", l1.enabled is True and "feed T0 following=lane1" in LOG, (l1.enabled, LOG))
     # AFC DEV keeps map as a list: no false "set map" warning
     p, afc, api, remap, b = setup(pre=lambda p, afc: [setattr(l, "map", ("T%d" % i,)) for i, l in enumerate(afc.lanes.values())])
@@ -1110,28 +1110,42 @@ def run_all():
         raise GError("INDX: filament load was not detected after 124.9 mm (0.0 J load energy)")
     p.gcode.ready_gcode_handlers["INDX_LOAD_FILAMENT"] = fail_feed
     try:
-        p.gcode.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=ABS")
+        p.gcode.cmd("INDX_BRIDGE_LOAD LANE=lane1 TYPE=ABS")
     except GError:
         pass
     sv = dict(p.objects["save_variables"].allVariables)
     check("a failed load: the lane stays marked as pushed to T0, also in save_variables",
-          0 in b.rammed and sv.get("indx_afc_rammed") == [0], (b.rammed, sv.get("indx_afc_rammed")))
+          0 in b.rammed and sv.get("indx_bridge_rammed") == [0], (b.rammed, sv.get("indx_bridge_rammed")))
     # restart: a new bridge with the same saved variables
     p2, afc2, api2, remap2, b2 = setup(pre=lambda p, afc: p.objects["save_variables"].allVariables.update(sv))
     del LOG[:]
-    p2.gcode.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=ABS")
+    p2.gcode.cmd("INDX_BRIDGE_LOAD LANE=lane1 TYPE=ABS")
     check("after a restart the retry does not push the lane again (no blind move into filament at the tool), it feeds",
           not any(l.startswith("ram lane1") for l in LOG) and "feed T0 following=lane1" in LOG
-          and p2.objects["save_variables"].allVariables.get("indx_afc_rammed") == [], LOG)
+          and p2.objects["save_variables"].allVariables.get("indx_bridge_rammed") == [], LOG)
 
-    # ---- INDX_AFC_CALIBRATE: the lane's path to its tool's gears ----
+    # ---- moving from indx-afc (before 0.3.0): settings and the pushed lane carried over ----
+    sets = []
+    def old_install(p, afc):
+        p.objects["save_variables"].allVariables.update({
+            "indx_settings": {"_INDX_AFC.ram_relief": 1.5, "_INDX_AFC.print_check": "stop", "TOOL_POSITIONS.z_hop": 0.4},
+            "indx_afc_rammed": [2]})
+        p.gcode.register_command("SET_GCODE_VARIABLE", lambda g: sets.append((g.get("MACRO"), g.get("VARIABLE"), g.get("VALUE"))))
+    p, afc, api, remap, b = setup(pre=old_install)
+    st = p.objects["save_variables"].allVariables["indx_settings"]
+    check("indx-afc's saved settings move to _INDX_BRIDGE, the old keys go, INDX's own stay",
+          st == {"_INDX_BRIDGE.ram_relief": 1.5, "_INDX_BRIDGE.print_check": "stop", "TOOL_POSITIONS.z_hop": 0.4}, st)
+    check("and are applied now too", ("_INDX_BRIDGE", "ram_relief", "1.5") in sets and ("_INDX_BRIDGE", "print_check", '"stop"') in sets, sets)
+    check("indx-afc's pushed lane (indx_afc_rammed) is still known after the rename", b.rammed == {2}, b.rammed)
+
+    # ---- INDX_BRIDGE_CALIBRATE: the lane's path to its tool's gears ----
     p, afc, api, remap, b = setup()
     g, sv = p.gcode, p.objects["save_variables"].allVariables
     for n in afc.lanes.values():
         n.path = 2000.0
     l1 = afc.lanes["lane1"]
     del LOG[:]
-    g.cmd("INDX_AFC_CALIBRATE LANE=lane1")
+    g.cmd("INDX_BRIDGE_CALIBRATE LANE=lane1")
     # fast pass stops at 2006 + 3; back off 20; slow pass from 1989 to 2006 + 0.2
     check("calibrate lane1 (path 2000 mm, 6 mm to close advance): measured 2006.2, dist_hub saved 35 mm shorter (overshoot 50 - 15): 1971.2",
           abs(l1.dist_hub - 1971.2) < 0.01 and "config_rewrite [AFC_stepper lane1] dist_hub: 1971.2" in LOG, (l1.dist_hub, LOG))
@@ -1141,21 +1155,21 @@ def run_all():
           l1.tip == 0.0 and 0 not in b.rammed and synced(afc) == [], (l1.tip, b.rammed, synced(afc)))
     check("calibrate: the result is reported", any("2006.2 mm measured (fast pass 2009.0, back 20, slow pass 17.2)" in l and "saved" in l for l in LOG), LOG)
     del LOG[:]
-    g.cmd("INDX_AFC_LOAD LANE=lane1 TYPE=PLA")
+    g.cmd("INDX_BRIDGE_LOAD LANE=lane1 TYPE=PLA")
     check("the next load rams with the calibrated dist_hub; its blind part stops short of the gears",
-          any(l.startswith("ram lane1 1971") for l in LOG) and l1.blind_past_gears == 0.0 and "say INDX-AFC: lane1 loaded into T0" in LOG, (LOG, l1.blind_past_gears))
+          any(l.startswith("ram lane1 1971") for l in LOG) and l1.blind_past_gears == 0.0 and "say INDX-Bridge: lane1 loaded into T0" in LOG, (LOG, l1.blind_past_gears))
     # with 50 mm of compression before the switch closes, the blind part still stops short
     for comp, name in ((50.0, "lane3"),):
         lc = afc.lanes[name]
         lc.comp = comp
-        g.cmd("INDX_AFC_CALIBRATE LANE=%s" % name)
-        g.cmd("INDX_AFC_LOAD LANE=%s TYPE=PLA" % name)
+        g.cmd("INDX_BRIDGE_CALIBRATE LANE=%s" % name)
+        g.cmd("INDX_BRIDGE_LOAD LANE=%s TYPE=PLA" % name)
         check("50 mm of compression before the switch closes: the calibrated ram's blind part still stops short of the gears, and it homes",
-              lc.blind_past_gears == 0.0 and "say INDX-AFC: lane3 loaded into T2" in LOG, (lc.dist_hub, lc.blind_past_gears, LOG[-3:]))
+              lc.blind_past_gears == 0.0 and "say INDX-Bridge: lane3 loaded into T2" in LOG, (lc.dist_hub, lc.blind_past_gears, LOG[-3:]))
     # why not longer: AFC rams dist_hub - 20 mm without watching the buffer
     l2x = afc.lanes["lane2"]
     l2x.dist_hub = 2100.0
-    g.cmd("INDX_AFC_LOAD LANE=lane2 TYPE=PLA")
+    g.cmd("INDX_BRIDGE_LOAD LANE=lane2 TYPE=PLA")
     check("(model check) a dist_hub 100 mm too long drives the filament 80 mm past the gears before AFC homes",
           abs(l2x.blind_past_gears - 80.0) < 0.01, l2x.blind_past_gears)
 
@@ -1164,13 +1178,13 @@ def run_all():
         n.path = 1500.0
     l2 = afc.lanes["lane2"]
     g = p.gcode
-    g.cmd("INDX_AFC_CALIBRATE LANE=lane2 SAVE=0")
+    g.cmd("INDX_BRIDGE_CALIBRATE LANE=lane2 SAVE=0")
     check("SAVE=0: measured and reported, dist_hub unchanged, nothing saved",
           l2.dist_hub == 900.0 and not any(l.startswith("config_rewrite") for l in LOG)
           and any("1506.2 mm measured" in l and "not saved" in l for l in LOG), (l2.dist_hub, LOG))
     check("SAVE=0: the lane back at its load sensor", l2.tip == 0.0, l2.tip)
     try:
-        g.cmd("INDX_AFC_CALIBRATE LANE=lane2 MAX=1000")
+        g.cmd("INDX_BRIDGE_CALIBRATE LANE=lane2 MAX=1000")
         emsg = None
     except GError as e:
         emsg = str(e)
@@ -1180,7 +1194,7 @@ def run_all():
     l2.homing_fails = True
     del LOG[:]
     try:
-        g.cmd("INDX_AFC_CALIBRATE LANE=lane2")
+        g.cmd("INDX_BRIDGE_CALIBRATE LANE=lane2")
         emsg = None
     except GError as e:
         emsg = str(e)
@@ -1199,14 +1213,14 @@ def run_all():
     afc.lanes["lane3"].adv_at_rest = True
     del LOG[:]
     try:
-        g.cmd("INDX_AFC_CALIBRATE LANE=lane2")
+        g.cmd("INDX_BRIDGE_CALIBRATE LANE=lane2")
         emsg = None
     except GError as e:
         emsg = str(e)
     check("calibrate a tool that has filament: refused, nothing moved",
           emsg is not None and "unload" in emsg.lower() and not any(l.startswith("lane_") for l in LOG), (emsg, LOG))
     try:
-        g.cmd("INDX_AFC_CALIBRATE LANE=lane3")
+        g.cmd("INDX_BRIDGE_CALIBRATE LANE=lane3")
         emsg = None
     except GError as e:
         emsg = str(e)
@@ -1215,14 +1229,14 @@ def run_all():
     afc.lanes["lane3"].adv_at_rest = False
     afc.lanes["lane4"].load_state = False
     del LOG[:]
-    g.cmd("INDX_AFC_CALIBRATE LANE=ALL")
+    g.cmd("INDX_BRIDGE_CALIBRATE LANE=ALL")
     check("LANE=ALL: calibrates the empty tools with filament, skips T1 (filament) and lane4 (no filament)",
           sorted(l for l in LOG if l.startswith("config_rewrite")) == ["config_rewrite [AFC_stepper lane1] dist_hub: 1171.2",
                                                                          "config_rewrite [AFC_stepper lane3] dist_hub: 1171.2"]
           and any("not calibrating lane2" in l and "lane4" in l for l in LOG), LOG)
     p.objects["print_stats"].state = "printing"
     try:
-        g.cmd("INDX_AFC_CALIBRATE LANE=lane1")
+        g.cmd("INDX_BRIDGE_CALIBRATE LANE=lane1")
         emsg = None
     except GError as e:
         emsg = str(e)
@@ -1243,11 +1257,11 @@ def run_all():
     # ---- load ----
     p, afc, api, remap, b = setup()
     g, sv = p.gcode, p.objects["save_variables"].allVariables
-    p.objects["gcode_macro _INDX_AFC"].variables["ram_relief"] = 1.5
+    p.objects["gcode_macro _INDX_BRIDGE"].variables["ram_relief"] = 1.5
     sv.update({"t0_material": "PLA"})
     g.cmd("_INDX_CHANGE_TOOL TOOL=0")
     del LOG[:]
-    g.cmd("INDX_AFC_LOAD LANE=lane2")
+    g.cmd("INDX_BRIDGE_LOAD LANE=lane2")
     order = [l for l in LOG if l.startswith(("run INDX_CHANGE_TOOL", "ram ", "lane_adv", "feed ", "run LOAD_FILAMENT"))]
     check("load: LOAD_FILAMENT with AFC's material and color; pick up, ram with nothing synced, relief, then the feed with the lane following",
           order == ["run LOAD_FILAMENT TOOL=1 TYPE=PLA COLOR=ff0000", "run INDX_CHANGE_TOOL TOOL=1 RETURN=none",
@@ -1277,31 +1291,31 @@ def run_all():
     p, afc, api, remap, b = setup()
     g, sv = p.gcode, p.objects["save_variables"].allVariables
     sv["t1_material"] = "PETG"
-    r = err(lambda: g.cmd("INDX_AFC_LOAD TOOL=1"))
+    r = err(lambda: g.cmd("INDX_BRIDGE_LOAD TOOL=1"))
     check("load: refused when INDX has filament in the tool", r and "already has filament" in r, r)
     afc.lanes["lane3"].load_state = False
-    r = err(lambda: g.cmd("INDX_AFC_LOAD TOOL=2"))
+    r = err(lambda: g.cmd("INDX_BRIDGE_LOAD TOOL=2"))
     check("load: refused with no filament at the lane's load sensor", r and "load sensor" in r, r)
     afc.lanes["lane4"].unit_obj.ram_ok = False
     del LOG[:]
-    r = err(lambda: g.cmd("INDX_AFC_LOAD TOOL=3"))
+    r = err(lambda: g.cmd("INDX_BRIDGE_LOAD TOOL=3"))
     check("load: a ram that never reaches the gears stops before any feed, nothing left synced",
           r and "did not reach" in r and not any(l.startswith("feed") for l in LOG) and synced(afc) == [], (r, LOG))
     afc.lanes["lane1"].material = "Silk Rainbow"
-    r = err(lambda: g.cmd("INDX_AFC_LOAD TOOL=0"))
+    r = err(lambda: g.cmd("INDX_BRIDGE_LOAD TOOL=0"))
     check("load: an unknown material asks for TYPE=", r and "TYPE=" in r, r)
-    p.objects["gcode_macro _INDX_AFC"].variables["load_type"] = "PETG"
+    p.objects["gcode_macro _INDX_BRIDGE"].variables["load_type"] = "PETG"
     del LOG[:]
-    g.cmd("INDX_AFC_LOAD TOOL=0")
+    g.cmd("INDX_BRIDGE_LOAD TOOL=0")
     check("load: the Load material setting fills in", any(l.startswith("run LOAD_FILAMENT TOOL=0 TYPE=PETG") for l in LOG), LOG)
     check("load: AFC's PETG-CF is INDX's PETG preset; PA-CF is PA; PLA+ is PLA; PCTG is not PC",
           b._material(types.SimpleNamespace(material="PETG-CF"), "") == "PETG" and b._material(types.SimpleNamespace(material="PA-CF"), "") == "PA"
           and b._material(types.SimpleNamespace(material="PLA+"), "") == "PLA"
           and b._material(types.SimpleNamespace(material="PCTG"), "") == "PETG")       # falls to the Load material setting
     p.objects["print_stats"].state = "printing"
-    r = err(lambda: g.cmd("INDX_AFC_LOAD TOOL=3 TYPE=PLA"))
+    r = err(lambda: g.cmd("INDX_BRIDGE_LOAD TOOL=3 TYPE=PLA"))
     check("load: refused while printing", r and "while printing" in r, r)
-    r = err(lambda: g.cmd("INDX_AFC_LOAD_ALL"))
+    r = err(lambda: g.cmd("INDX_BRIDGE_LOAD_ALL"))
     check("load all: refused during a print", r and "during a print" in r, r)
 
     # ---- load all / unload all ----
@@ -1309,18 +1323,18 @@ def run_all():
     g, sv = p.gcode, p.objects["save_variables"].allVariables
     sv.update({"t1_material": "PLA", "ref_tool": 0})
     afc.lanes["lane4"].load_state = False
-    g.cmd("INDX_AFC_LOAD_ALL")
+    g.cmd("INDX_BRIDGE_LOAD_ALL")
     feeds = [l for l in LOG if l.startswith("feed")]
     check("load all: the lanes with filament and an empty tool, the reference tool last",
           feeds == ["feed T2 following=lane3", "feed T0 following=lane1"] and sv["active_tool"] == 0, feeds)
-    p.objects["gcode_macro _INDX_AFC"].variables["prime_test"] = True
+    p.objects["gcode_macro _INDX_BRIDGE"].variables["prime_test"] = True
     sv["t1_material"] = "NONE"
     del LOG[:]
-    g.cmd("INDX_AFC_LOAD TOOL=1")
+    g.cmd("INDX_BRIDGE_LOAD TOOL=1")
     check("load: the prime test setting runs INDX_PRIME_TEST after",
           "run INDX_PRIME_TEST" in LOG and LOG.index("run INDX_PRIME_TEST") > LOG.index("feed T1 following=lane2"), LOG)
     del LOG[:]
-    g.cmd("INDX_AFC_UNLOAD_ALL")
+    g.cmd("INDX_BRIDGE_UNLOAD_ALL")
     homes = [l for l in LOG if l.startswith("lane_move")]
     check("unload all: every loaded tool, each lane home", len(homes) == 3 and all(sv["t%d_material" % d] == "NONE" for d in (0, 1, 2)), homes)
 
@@ -1328,7 +1342,7 @@ def run_all():
     p, afc, api, remap, b = setup()
     g, sv = p.gcode, p.objects["save_variables"].allVariables
     sv.update({"t2_material": "PLA"})
-    g.cmd("INDX_AFC_UNLOAD LANE=lane3")
+    g.cmd("INDX_BRIDGE_UNLOAD LANE=lane3")
     p.reactor.run()
     seq = [l for l in LOG if l.startswith(("tip ", "latch E", "lane_adv", "lane_move"))]
     latch = [l for l in seq if l.startswith("latch E")]
@@ -1351,10 +1365,10 @@ def run_all():
     check("INDX's own unload (its page): the lane follows the pull and goes home after it, once",
           len([l for l in seq if l.startswith("lane_adv")]) == 9 and seq[-1] == "lane_move lane1 -900 load kl_synced=False"
           and LOG.count("lane_move lane1 -900 load kl_synced=False") == 1 and no_deadlock(), seq)
-    p.objects["gcode_macro _INDX_AFC"].variables["unload_chunk"] = 20.0
+    p.objects["gcode_macro _INDX_BRIDGE"].variables["unload_chunk"] = 20.0
     sv.update({"t0_material": "PLA"})
     del LOG[:]
-    g.cmd("INDX_AFC_UNLOAD TOOL=0")
+    g.cmd("INDX_BRIDGE_UNLOAD TOOL=0")
     check("unload: the Unload step setting changes the parts (20 mm: 4)", len([l for l in LOG if l.startswith("latch E")]) == 4, LOG)
 
     p, afc, api, remap, b = setup(opts={"lanes": "lane1, -, lane3, lane4"})
@@ -1399,19 +1413,19 @@ def run_all():
     p.objects["print_stats"].state = "printing"
     p.objects["toolhead"].ext.heater.target = 215.0
     g.cmd("PAUSE")
-    r = err(lambda: g.cmd("INDX_AFC_UNLOAD TOOL=1"))
+    r = err(lambda: g.cmd("INDX_BRIDGE_UNLOAD TOOL=1"))
     check("paused: a parked tool cannot be unloaded", r and "only that tool" in r, r)
     del LOG[:]
-    g.cmd("INDX_AFC_UNLOAD TOOL=0")
+    g.cmd("INDX_BRIDGE_UNLOAD TOOL=0")
     p.objects["toolhead"].ext.heater.target = 0.0          # INDX's unload turns the heater off
     check("paused: the tool on the head unloads, then the head goes back to the pause position",
           sv["t0_material"] == "NONE" and "run G1 X300.000 Y300.000 F9000" in LOG, [l for l in LOG if l.startswith("run G1")])
     del LOG[:]
-    g.cmd("INDX_AFC_LOAD TOOL=0")
+    g.cmd("INDX_BRIDGE_LOAD TOOL=0")
     runs = [l for l in LOG if l.startswith("run ")]
     check("paused: the new spool loads without tip shaping (TIP=0), back to the pause position, the print's temperature again",
           "run LOAD_FILAMENT TOOL=0 TYPE=PLA COLOR=ff0000 TIP=0" in runs and "run G1 X300.000 Y300.000 F9000" in runs
-          and runs[-1] == "run INDX_SET_TEMP TARGET=215.0 WAIT=0 SRC=INDX_AFC" and synced(afc) == ["lane1"], runs)
+          and runs[-1] == "run INDX_SET_TEMP TARGET=215.0 WAIT=0 SRC=INDX_BRIDGE" and synced(afc) == ["lane1"], runs)
     g.cmd("RESUME")
     check("paused: RESUME goes on, no waiting on the lock anywhere", p.objects["print_stats"].state == "printing" and no_deadlock())
 
@@ -1421,24 +1435,24 @@ def run_all():
     sv.update({"t0_material": "PLA", "t1_material": "NONE"})
     afc.lanes["lane1"].prep_state = False
     g.cmd("INDX_PRINT_START TOOLS=0,1,2")
-    says = [l for l in LOG if l.startswith("say INDX-AFC !")]
+    says = [l for l in LOG if l.startswith("say INDX-Bridge !")]
     check("print start: a spool that is out and an empty tool with a ready lane are named",
           len(says) == 1 and "T0: lane1's spool is out" in says[0] and "T1 is empty but lane2" in says[0] and "T2 is empty but lane3" in says[0], says)
     p.objects["print_stats"].state = "standby"
-    p.objects["gcode_macro _INDX_AFC"].variables["print_check"] = "stop"
+    p.objects["gcode_macro _INDX_BRIDGE"].variables["print_check"] = "stop"
     r = err(lambda: g.cmd("INDX_PRINT_START TOOLS=0"))
     check("print start: with the check on stop, it stops the start", r and "print start stopped" in r, r)
     p.objects["print_stats"].state = "standby"
-    p.objects["gcode_macro _INDX_AFC"].variables["print_check"] = "off"
+    p.objects["gcode_macro _INDX_BRIDGE"].variables["print_check"] = "off"
     del LOG[:]
     g.cmd("INDX_PRINT_START TOOLS=0")
-    check("print start: off says nothing", not any("INDX-AFC !" in l for l in LOG), LOG)
+    check("print start: off says nothing", not any("INDX-Bridge !" in l for l in LOG), LOG)
 
     # ---- colors ----
     p, afc, api, remap, b = setup()
     g, sv = p.gcode, p.objects["save_variables"].allVariables
     sv.update({"t0_material": "PLA", "t0_color": "00ff00", "t1_material": "NONE"})
-    g.cmd("INDX_AFC_SYNC COLORS=1")
+    g.cmd("INDX_BRIDGE_SYNC COLORS=1")
     check("sync COLORS=1: AFC's color into INDX for loaded tools only",
           "run INDX_SET_MATERIAL TOOL=0 TYPE=PLA COLOR=ff0000" in LOG and not any("INDX_SET_MATERIAL TOOL=1" in l for l in LOG), LOG)
 
@@ -1510,9 +1524,9 @@ def spool_join(remap_cls, tag):
 
     p, afc, api, remap, b = setup(remap_cls=remap_cls)
     start(p, remap, partner={0: 1})
-    p.objects["gcode_macro _INDX_AFC"].variables["spool_join"] = False
+    p.objects["gcode_macro _INDX_BRIDGE"].variables["spool_join"] = False
     g = p.gcode
-    g.cmd("INDX_AFC_SYNC")
+    g.cmd("INDX_BRIDGE_SYNC")
     check(tag + "setting off: the sensors are taken back from INDX, the manager gate is INDX's again",
           remap.dock_of == {} and remap._manager() is not None, remap.dock_of)
     afc.lanes["lane1"].runout_lane = "lane2"
@@ -1583,7 +1597,7 @@ def spool_join(remap_cls, tag):
     # beta.7: INDX leaves runouts to a registered tool manager; the bridge
     # keeps INDX's spool join deciding (it feeds the tools, it does not own them)
     check(tag + "the bridge is INDX's tool manager and INDX's spool join still decides (beta.7: no 'Left to the tool manager')",
-          getattr(api.manager, "name", "") == "indx_afc" and not any("Left to the tool manager" in str(l) for l in LOG), LOG)
+          getattr(api.manager, "name", "") == "indx_bridge" and not any("Left to the tool manager" in str(l) for l in LOG), LOG)
     fixed = b._remap_fixed()
     wrapped = "INDX_RUNOUT" in b.prev and "_INDX_REMAP_JOINED" in b.prev
     check(tag + ("INDX's spool join is fixed (beta.7): the bridge's INDX_RUNOUT / _INDX_REMAP_JOINED workarounds stand aside"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# INDX-AFC bridge: does this printer's INDX, AFC and Kalico still have the
+# INDX Bridge: does this printer's INDX, AFC and Kalico still have the
 # names the bridge uses? Reads source files only; changes nothing.
 #   python3 tools/check_compat.py [--klipper ~/klipper] [--config ~/printer_data/config]
 # Run it after every INDX, AFC or Kalico update, before printing.
@@ -56,7 +56,7 @@ def src(name, fatal=True):
     return read(f)
 
 
-print("INDX-AFC bridge check (%s)" % a.klipper)
+print("INDX Bridge check (%s)" % a.klipper)
 t = src("indx_api.py")
 if t:
     check("INDX tool manager and latch sync (indx_api.py)", t,
@@ -88,7 +88,7 @@ if t:
            r"fila_prep", r"dist_hub", r"load_es", r"homing_overshoot", r"def get_toolhead_endstop"])
 # Kalico (PR #1052) made gcmd a required argument of manual_home. An AFC
 # that does not pass it fails every homing move: loads, the ram, unloads,
-# INDX_AFC_CALIBRATE ("Error occurred when trying to home to ...").
+# INDX_BRIDGE_CALIBRATE ("Error occurred when trying to home to ...").
 hm = read(os.path.join(a.klipper, "klippy", "extras", "homing.py"))
 st = src("AFC_stepper.py", fatal=False)
 if st:
@@ -133,9 +133,9 @@ else:
     if m and "_TC_LATCH_MOVE" not in m.group(1):
         warn += 1
         print("  warn  _INDX_UNLOAD_PULL no longer uses _TC_LATCH_MOVE: read it, the bridge replaces it for lane-fed tools")
-if not os.path.exists(os.path.join(a.config, "indx", "ext", "indx_afc.cfg")):
+if not os.path.exists(os.path.join(a.config, "indx", "ext", "indx_bridge.cfg")):
     warn += 1
-    print("  warn  %s/indx/ext/indx_afc.cfg is missing: run install.sh" % a.config)
+    print("  warn  %s/indx/ext/indx_bridge.cfg is missing: run install.sh" % a.config)
 
 print("%s (%d failed, %d warnings)" % ("Do NOT print with the bridge until the failed lines are sorted: update the bridge" if bad else
                                        "The names the bridge uses are all there" if not warn else "Usable; read the warnings", bad, warn))
